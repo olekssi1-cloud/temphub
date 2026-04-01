@@ -1,56 +1,61 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-const RANGE_SQL: Record<string, string> = {
-  "1h": "NOW() - INTERVAL '1 hour'",
-  "10h": "NOW() - INTERVAL '10 hours'",
-  "24h": "NOW() - INTERVAL '24 hours'",
-  "5d": "NOW() - INTERVAL '5 days'",
-  "10d": "NOW() - INTERVAL '10 days'",
-};
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function GET(req: Request) {
+function getRangeToInterval(range: string) {
+  switch (range) {
+    case "1h":
+      return "1 hour";
+    case "10h":
+      return "10 hours";
+    case "24h":
+      return "24 hours";
+    case "5d":
+      return "5 days";
+    case "10d":
+      return "10 days";
+    default:
+      return "24 hours";
+  }
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
+    const { searchParams } = new URL(request.url);
     const range = searchParams.get("range") || "24h";
+    const intervalValue = getRangeToInterval(range);
 
-    const since = RANGE_SQL[range] || RANGE_SQL["24h"];
-
-    const shortRanges = ["1h", "10h", "24h"];
-    const labelFormat = shortRanges.includes(range)
-      ? "HH24:MI"
-      : "DD.MM HH24:MI";
-
-    const query = `
-      SELECT
-        temp,
-        TO_CHAR(
-          ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Kyiv'),
-          '${labelFormat}'
-        ) AS time_label
+    const rows = await sql`
+      SELECT temp, created_at
       FROM temperature_logs
-      WHERE created_at >= ${since}
+      WHERE created_at >= NOW() - CAST(${intervalValue} AS interval)
       ORDER BY created_at ASC
-      LIMIT 500
     `;
 
-    const rows = (await sql.unsafe(query)) as unknown as any[];
-
-    const result = rows.map((row) => ({
+    const data = rows.map((row: any) => ({
       temp: Number(row.temp),
-      time: row.time_label,
+      time: row.created_at,
     }));
 
-    return NextResponse.json(result);
+    return NextResponse.json(data, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (error) {
-    console.error("History API error:", error);
-
     return NextResponse.json(
       {
         ok: false,
         error: String(error),
       },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
     );
   }
 }
