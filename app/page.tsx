@@ -19,22 +19,18 @@ const ranges = ["1h", "10h", "24h", "5d", "10d"] as const;
 type RangeType = (typeof ranges)[number];
 
 function formatTemp(value: number | null) {
-  return value !== null && !Number.isNaN(value) ? `${value.toFixed(1)}°C` : "--°C";
+  return value !== null && !Number.isNaN(value)
+    ? `${value.toFixed(1)}°C`
+    : "--°C";
 }
 
 function getSensorStatus(latest: LatestData | null) {
-  if (!latest || !latest.updatedAt) {
-    return "offline";
-  }
+  if (!latest || !latest.updatedAt) return "offline";
 
   const updatedAt = new Date(latest.updatedAt).getTime();
   const diffMs = Date.now() - updatedAt;
 
-  if (diffMs > 60 * 1000) {
-    return "offline";
-  }
-
-  return "ok";
+  return diffMs > 60 * 1000 ? "offline" : "ok";
 }
 
 function getStatusColor(status: string) {
@@ -141,7 +137,6 @@ export default function HomePage() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              flexShrink: 0,
               overflow: "hidden",
             }}
           >
@@ -155,8 +150,10 @@ export default function HomePage() {
           </div>
 
           <div>
-            <h1 style={{ fontSize: 44, margin: 0, fontWeight: 800 }}>Міщенки</h1>
-            <p style={{ fontSize: 28, lineHeight: 1.35, margin: "10px 0 0" }}>
+            <h1 style={{ fontSize: 44, margin: 0, fontWeight: 800 }}>
+              Міщенки
+            </h1>
+            <p style={{ fontSize: 28, margin: "10px 0 0" }}>
               Температура, статус сенсора і межі за 24 години
             </p>
           </div>
@@ -171,10 +168,10 @@ export default function HomePage() {
             marginBottom: 20,
           }}
         >
-          <div style={{ fontSize: 92, fontWeight: 800, lineHeight: 1 }}>
+          <div style={{ fontSize: 92, fontWeight: 800 }}>
             {loadingLatest ? "..." : formatTemp(liveTemp)}
           </div>
-          <div style={{ fontSize: 32, marginTop: 18 }}>
+          <div style={{ fontSize: 32 }}>
             {loadingLatest ? "loading" : sensorStatus}
           </div>
         </section>
@@ -193,14 +190,10 @@ export default function HomePage() {
               borderRadius: 28,
               padding: 24,
               textAlign: "center",
-              minHeight: 180,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
             }}
           >
             <div style={{ fontSize: 30 }}>MIN 24h</div>
-            <div style={{ fontSize: 58, fontWeight: 800, marginTop: 18 }}>
+            <div style={{ fontSize: 58, fontWeight: 800 }}>
               {loadingHistory ? "..." : formatTemp(min24)}
             </div>
           </div>
@@ -211,14 +204,10 @@ export default function HomePage() {
               borderRadius: 28,
               padding: 24,
               textAlign: "center",
-              minHeight: 180,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
             }}
           >
             <div style={{ fontSize: 30 }}>MAX 24h</div>
-            <div style={{ fontSize: 58, fontWeight: 800, marginTop: 18 }}>
+            <div style={{ fontSize: 58, fontWeight: 800 }}>
               {loadingHistory ? "..." : formatTemp(max24)}
             </div>
           </div>
@@ -258,12 +247,12 @@ export default function HomePage() {
             padding: 24,
           }}
         >
-          <h2 style={{ fontSize: 34, margin: "0 0 18px", fontWeight: 800 }}>
+          <h2 style={{ fontSize: 34, marginBottom: 18 }}>
             Історія температури
           </h2>
 
           {loadingHistory ? (
-            <p style={{ fontSize: 22 }}>Завантаження...</p>
+            <p>Завантаження...</p>
           ) : (
             <TemperatureChart data={history} range={range} />
           )}
