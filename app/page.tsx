@@ -1,310 +1,314 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import TemperatureChart from "./components/TemperatureChart";
 
-type TempItem = {
-  device_id: string;
-  temperature: number;
-  sensor_ok: boolean;
-  time: string;
-  min12h?: number | null;
-  max12h?: number | null;
+type LatestData = {
+  temp: number | null;
+  status: string;
+  updated: string;
+  device: string;
+  min24h?: number | null;
+  max24h?: number | null;
 };
 
-const OFFLINE_TIMEOUT_MS = 10000;
+type Point = {
+  temp: number;
+  time: string;
+};
 
-export default function Home() {
-  const [latest, setLatest] = useState<TempItem | null>(null);
-  const [now, setNow] = useState(Date.now());
+export default function HomePage() {
+  const [latest, setLatest] = useState<LatestData>({
+    temp: null,
+    status: "loading",
+    updated: "...",
+    device: "A1",
+    min24h: null,
+    max24h: null,
+  });
 
-  async function loadData() {
+  const [points, setPoints] = useState<Point[]>([]);
+  const [range, setRange] = useState("24h");
+
+  async function loadLatest() {
     try {
-      const res = await fetch("/api/temperature", {
+      const latestRes = await fetch("/api/latest", { cache: "no-store" });
+      const latestJson = await latestRes.json();
+
+      const tempRes = await fetch("/api/temperature", { cache: "no-store" });
+      const tempJson = await tempRes.json();
+
+      setLatest({
+        temp: latestJson.temp,
+        status: latestJson.status,
+        updated: latestJson.updated,
+        device: latestJson.device || "A1",
+        min24h: tempJson.min24h,
+        max24h: tempJson.max24h,
+      });
+    } catch {
+      setLatest({
+        temp: null,
+        status: "error",
+        updated: "помилка",
+        device: "A1",
+        min24h: null,
+        max24h: null,
+      });
+    }
+  }
+
+  async function loadHistory(selectedRange: string) {
+    try {
+      const res = await fetch("/api/history?range=" + selectedRange, {
         cache: "no-store",
       });
-
-      if (!res.ok) {
-        throw new Error("Failed to fetch");
-      }
-
       const json = await res.json();
 
-      if (Array.isArray(json) && json.length > 0) {
-        setLatest(json[0]);
+      if (Array.isArray(json)) {
+        setPoints(json);
       } else {
-        setLatest(null);
+        setPoints([]);
       }
-    } catch (error) {
-      console.log("Fetch error:", error);
+    } catch {
+      setPoints([]);
     }
   }
 
   useEffect(() => {
-    loadData();
+    loadLatest();
+    loadHistory(range);
+  }, [range]);
 
-    const dataInterval = setInterval(loadData, 2000);
-    const clockInterval = setInterval(() => setNow(Date.now()), 1000);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadLatest();
+      loadHistory(range);
+    }, 15000);
 
-    return () => {
-      clearInterval(dataInterval);
-      clearInterval(clockInterval);
-    };
-  }, []);
+    return () => clearInterval(timer);
+  }, [range]);
 
-  const latestTime = latest ? new Date(latest.time).getTime() : 0;
-  const isOffline = !latest || now - latestTime > OFFLINE_TIMEOUT_MS;
+  function formatTemp(value: number | null | undefined) {
+    if (value === null || value === undefined) return "--°C";
+    return value.toFixed(1) + "°C";
+  }
 
-  const currentTemp = !latest || isOffline ? 0 : Number(latest.temperature ?? 0);
-  const currentSensorOk = !!latest && !isOffline && !!latest.sensor_ok;
+  function statusText(value: string) {
+    if (value === "online") return "Онлайн";
+    if (value === "no_data") return "Немає даних";
+    if (value === "error") return "Помилка";
+    return value;
+  }
 
-  const min12h =
-    latest && latest.min12h !== undefined && latest.min12h !== null
-      ? Number(latest.min12h).toFixed(1)
-      : "--";
-
-  const max12h =
-    latest && latest.max12h !== undefined && latest.max12h !== null
-      ? Number(latest.max12h).toFixed(1)
-      : "--";
-
-  const statusText = isOffline
-    ? "Немає зв'язку"
-    : currentSensorOk
-    ? "Норма"
-    : "Помилка";
-
-  const statusBg = isOffline
-    ? "rgba(148, 163, 184, 0.18)"
-    : currentSensorOk
-    ? "rgba(34, 197, 94, 0.16)"
-    : "rgba(239, 68, 68, 0.16)";
-
-  const statusColor = isOffline
-    ? "#cbd5e1"
-    : currentSensorOk
-    ? "#22c55e"
-    : "#f87171";
-
-  const tempColor = isOffline ? "#e2e8f0" : currentTemp >= 34 ? "#f87171" : "#22c55e";
+  const rangeButtons = ["1h", "10h", "24h", "5d", "10d"];
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        background:
-          "radial-gradient(circle at top, rgba(37,99,235,0.18), transparent 28%), linear-gradient(180deg, #071127 0%, #081224 45%, #030712 100%)",
-        color: "#f8fafc",
+        background: "#041126",
+        color: "#ffffff",
+        padding: "24px",
         fontFamily: "Arial, sans-serif",
-        padding: "26px 14px 40px",
       }}
     >
-      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+      <div style={{ maxWidth: "720px", margin: "0 auto" }}>
         <div
           style={{
-            background:
-              "linear-gradient(135deg, rgba(59,130,246,0.30), rgba(15,23,42,0.95) 55%, rgba(20,184,166,0.18))",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 28,
-            padding: 22,
-            boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
-            marginBottom: 18,
+            background: "linear-gradient(90deg, #1d4ed8 0%, #06b6d4 100%)",
+            borderRadius: "28px",
+            padding: "28px",
+            display: "flex",
+            alignItems: "center",
+            gap: "20px",
+            marginBottom: "28px",
           }}
         >
-          <div style={{ color: "#bfdbfe", fontSize: 13, marginBottom: 10 }}>
-            Mobile monitoring
-          </div>
-
           <div
             style={{
+              width: "78px",
+              height: "78px",
+              borderRadius: "999px",
+              background: "#ffffff",
               display: "flex",
               alignItems: "center",
-              gap: 12,
-              marginBottom: 12,
+              justifyContent: "center",
+              overflow: "hidden",
+              flexShrink: 0,
             }}
           >
-            <div style={{ fontSize: 32 }}>🌡️</div>
-            <div style={{ fontSize: 34, fontWeight: 800 }}>TempHub</div>
+            <img
+              src="/logo.png"
+              alt="Logo"
+              style={{ width: "58px", height: "58px", objectFit: "contain" }}
+            />
           </div>
 
-          <div style={{ color: "#e2e8f0", fontSize: 15, lineHeight: 1.45 }}>
-            Температура, статус сенсора і межі за 12 годин.
+          <div>
+            <div
+              style={{
+                fontSize: "34px",
+                fontWeight: 700,
+                marginBottom: "10px",
+              }}
+            >
+              Міщенки
+            </div>
+
+            <div
+              style={{
+                fontSize: "20px",
+                lineHeight: 1.35,
+                color: "rgba(255,255,255,0.95)",
+              }}
+            >
+              Температура, статус сенсора і межі за 24 години
+            </div>
           </div>
+        </div>
+
+        <div
+          style={{
+            background: "#08b536",
+            borderRadius: "28px",
+            padding: "34px 24px",
+            textAlign: "center",
+            marginBottom: "24px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "72px",
+              fontWeight: 700,
+              lineHeight: 1,
+              marginBottom: "18px",
+            }}
+          >
+            {formatTemp(latest.temp)}
+          </div>
+
+          <div style={{ fontSize: "24px" }}>{statusText(latest.status)}</div>
         </div>
 
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
-            gap: 14,
-            marginBottom: 18,
+            gap: "18px",
+            marginBottom: "26px",
           }}
         >
           <div
             style={{
-              borderRadius: 22,
-              padding: 18,
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "#059b35",
+              borderRadius: "22px",
+              padding: "28px 20px",
+              textAlign: "center",
             }}
           >
-            <div style={{ color: "#cbd5e1", fontSize: 13 }}>Записів</div>
-            <div style={{ marginTop: 10, fontSize: 30, fontWeight: 800 }}>
-              {latest ? 1 : 0}
+            <div style={{ fontSize: "24px", marginBottom: "10px" }}>MIN 24h</div>
+            <div style={{ fontSize: "34px", fontWeight: 700 }}>
+              {formatTemp(latest.min24h)}
             </div>
           </div>
 
           <div
             style={{
-              borderRadius: 22,
-              padding: 18,
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "#e00000",
+              borderRadius: "22px",
+              padding: "28px 20px",
+              textAlign: "center",
             }}
           >
-            <div style={{ color: "#cbd5e1", fontSize: 13 }}>Середня t°</div>
-            <div style={{ marginTop: 10, fontSize: 30, fontWeight: 800 }}>
-              {latest && !isOffline ? currentTemp.toFixed(1) : "--"}°C
+            <div style={{ fontSize: "24px", marginBottom: "10px" }}>MAX 24h</div>
+            <div style={{ fontSize: "34px", fontWeight: 700 }}>
+              {formatTemp(latest.max24h)}
             </div>
           </div>
         </div>
 
         <div
           style={{
-            borderRadius: 28,
-            padding: 20,
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
-            marginBottom: 18,
+            display: "flex",
+            gap: "14px",
+            marginBottom: "26px",
+            flexWrap: "wrap",
+          }}
+        >
+          {rangeButtons.map((item) => {
+            const active = range === item;
+
+            return (
+              <button
+                key={item}
+                onClick={() => setRange(item)}
+                style={{
+                  minWidth: "92px",
+                  height: "68px",
+                  borderRadius: "24px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "22px",
+                  color: "#ffffff",
+                  background: active ? "#15c5f5" : "#1b2740",
+                }}
+              >
+                {item}
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          style={{
+            background: "#101b32",
+            borderRadius: "28px",
+            padding: "24px",
           }}
         >
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "start",
-              gap: 12,
-              marginBottom: 14,
+              alignItems: "center",
+              gap: "12px",
+              flexWrap: "wrap",
+              marginBottom: "14px",
             }}
           >
-            <div>
-              <div style={{ color: "#cbd5e1", fontSize: 13 }}>Останній пристрій</div>
-              <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
-                {latest?.device_id || "--"}
-              </div>
+            <div style={{ fontSize: "28px", fontWeight: 700 }}>
+              Історія температури
             </div>
 
-            <div
+            <button
+              onClick={() => loadHistory(range)}
               style={{
-                padding: "10px 14px",
-                borderRadius: 999,
-                background: statusBg,
-                color: statusColor,
-                border: `1px solid ${statusColor}55`,
-                fontSize: 13,
-                fontWeight: 800,
+                background: "transparent",
+                color: "#d1d5db",
+                border: "1px solid #4b5563",
+                borderRadius: "999px",
+                padding: "12px 20px",
+                fontSize: "16px",
+                cursor: "pointer",
               }}
             >
-              {statusText}
-            </div>
+              Скинути zoom
+            </button>
           </div>
 
           <div
             style={{
-              fontSize: 66,
-              lineHeight: 1,
-              fontWeight: 900,
-              color: tempColor,
-              marginBottom: 18,
+              color: "#b7c0d1",
+              fontSize: "17px",
+              lineHeight: 1.45,
+              marginBottom: "18px",
             }}
           >
-            {currentTemp.toFixed(1)}°C
+            Масштабуй пальцями, рухай графік вліво/вправо.
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 14,
-              marginBottom: 14,
-            }}
-          >
-            <div
-              style={{
-                borderRadius: 18,
-                padding: 16,
-                background: "rgba(255,255,255,0.05)",
-              }}
-            >
-              <div style={{ color: "#cbd5e1", fontSize: 13 }}>Сенсор</div>
-              <div style={{ marginTop: 8, fontSize: 18, fontWeight: 800 }}>
-                {currentSensorOk ? "Працює" : "Не працює"}
-              </div>
-            </div>
-
-            <div
-              style={{
-                borderRadius: 18,
-                padding: 16,
-                background: "rgba(255,255,255,0.05)",
-              }}
-            >
-              <div style={{ color: "#cbd5e1", fontSize: 13 }}>Оновлено</div>
-              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700 }}>
-                {latest ? new Date(latest.time).toLocaleString() : "--"}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 14,
-            }}
-          >
-            <div
-              style={{
-                borderRadius: 18,
-                padding: 16,
-                background: "rgba(34,197,94,0.12)",
-                border: "1px solid rgba(34,197,94,0.18)",
-              }}
-            >
-              <div style={{ color: "#d1fae5", fontSize: 13 }}>MIN 12h</div>
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 24,
-                  fontWeight: 800,
-                  color: "#4ade80",
-                }}
-              >
-                {min12h}°C
-              </div>
-            </div>
-
-            <div
-              style={{
-                borderRadius: 18,
-                padding: 16,
-                background: "rgba(239,68,68,0.12)",
-                border: "1px solid rgba(239,68,68,0.18)",
-              }}
-            >
-              <div style={{ color: "#fecaca", fontSize: 13 }}>MAX 12h</div>
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 24,
-                  fontWeight: 800,
-                  color: "#f87171",
-                }}
-              >
-                {max12h}°C
-              </div>
-            </div>
-          </div>
+          <TemperatureChart points={points} />
         </div>
       </div>
     </main>
