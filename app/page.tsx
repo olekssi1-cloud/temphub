@@ -83,7 +83,7 @@ export default function HomePage() {
     const interval = setInterval(() => {
       loadLatest();
       loadHistory(range);
-    }, 1000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [range]);
