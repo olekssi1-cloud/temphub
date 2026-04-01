@@ -1,174 +1,79 @@
 "use client";
 
-type Point = {
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
+
+type HistoryPoint = {
   temp: number;
   time: string;
 };
 
 type Props = {
-  points: Point[];
+  data: HistoryPoint[];
+  range: "1h" | "10h" | "24h" | "5d" | "10d";
 };
 
-export default function TemperatureChart({ points }: Props) {
-  if (!points || points.length === 0) {
+function formatLabel(dateString: string, range: Props["range"]) {
+  const date = new Date(dateString);
+
+  if (range === "1h" || range === "10h" || range === "24h") {
+    return date.toLocaleTimeString("uk-UA", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return date.toLocaleString("uk-UA", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export default function TemperatureChart({ data, range }: Props) {
+  const chartData = data.map((item) => ({
+    ...item,
+    label: formatLabel(item.time, range),
+  }));
+
+  if (!chartData.length) {
     return (
-      <div
-        style={{
-          color: "#d1d5db",
-          fontSize: "20px",
-          padding: "12px 0 4px 0",
-        }}
-      >
+      <p style={{ color: "white", fontSize: 22 }}>
         Немає даних для графіка
-      </div>
+      </p>
     );
   }
 
-  const width = 680;
-  const height = 360;
-  const paddingLeft = 72;
-  const paddingRight = 20;
-  const paddingTop = 20;
-  const paddingBottom = 58;
-
-  const temps = points.map((p) => p.temp);
-  const maxValue = Math.max(...temps);
-
-  const extra = 0.2;
-  const minY = 0;
-  const maxY = Math.ceil((maxValue + extra) * 10) / 10;
-  const rangeY = maxY - minY || 1;
-
-  const chartWidth = width - paddingLeft - paddingRight;
-  const chartHeight = height - paddingTop - paddingBottom;
-
-  const stepX = points.length > 1 ? chartWidth / (points.length - 1) : 0;
-
-  const coords = points.map((point, index) => {
-    const x = paddingLeft + index * stepX;
-    const y =
-      paddingTop + chartHeight - ((point.temp - minY) / rangeY) * chartHeight;
-
-    return { x, y };
-  });
-
-  const linePoints = coords
-    .map((c) => String(c.x) + "," + String(c.y))
-    .join(" ");
-
-  const areaPoints =
-    String(paddingLeft) +
-    "," +
-    String(paddingTop + chartHeight) +
-    " " +
-    linePoints +
-    " " +
-    String(coords[coords.length - 1].x) +
-    "," +
-    String(paddingTop + chartHeight);
-
-  const yTicks = 5;
-  const yLabels = [];
-
-  for (let i = 0; i <= yTicks; i++) {
-    const value = minY + (rangeY / yTicks) * (yTicks - i);
-    const y = paddingTop + (chartHeight / yTicks) * i;
-    yLabels.push({ value, y });
-  }
-
-  let labelStep = 1;
-  if (points.length > 12) labelStep = 2;
-  if (points.length > 20) labelStep = 3;
-  if (points.length > 30) labelStep = 4;
-  if (points.length > 45) labelStep = 6;
-  if (points.length > 70) labelStep = 8;
-
   return (
-    <div style={{ width: "100%" }}>
-      <svg
-        viewBox={"0 0 " + width + " " + height}
-        style={{ width: "100%", height: "auto", display: "block" }}
-      >
-        {yLabels.map((item, index) => (
-          <g key={index}>
-            <line
-              x1={paddingLeft}
-              y1={item.y}
-              x2={width - paddingRight}
-              y2={item.y}
-              stroke="#334155"
-              strokeWidth="1"
-            />
-            <text
-              x={paddingLeft - 14}
-              y={item.y + 6}
-              textAnchor="end"
-              fontSize="12"
-              fill="#cbd5e1"
-            >
-              {item.value.toFixed(1)}°
-            </text>
-          </g>
-        ))}
-
-        {coords.map((point, index) => (
-          <line
-            key={index}
-            x1={point.x}
-            y1={paddingTop}
-            x2={point.x}
-            y2={paddingTop + chartHeight}
-            stroke="#23324f"
-            strokeWidth="1"
+    <div style={{ width: "100%", height: 320 }}>
+      <ResponsiveContainer>
+        <LineChart data={chartData}>
+          <CartesianGrid stroke="rgba(255,255,255,0.1)" />
+          <XAxis
+            dataKey="label"
+            tick={{ fill: "white", fontSize: 12 }}
           />
-        ))}
-
-        <polygon
-          points={areaPoints}
-          fill="rgba(34,197,94,0.18)"
-        />
-
-        <polyline
-          points={linePoints}
-          fill="none"
-          stroke="#22c55e"
-          strokeWidth="5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-
-        {coords.map((point, index) => (
-          <circle
-            key={index}
-            cx={point.x}
-            cy={point.y}
-            r="3"
-            fill="#22c55e"
+          <YAxis
+            tick={{ fill: "white", fontSize: 12 }}
           />
-        ))}
-
-        {points.map((point, index) => {
-          if (index % labelStep !== 0 && index !== points.length - 1) {
-            return null;
-          }
-
-          return (
-            <text
-              key={index}
-              x={coords[index].x}
-              y={height - 18}
-              textAnchor="end"
-              transform={
-                "rotate(-28 " + coords[index].x + " " + (height - 18) + ")"
-              }
-              fontSize="12"
-              fill="#cbd5e1"
-            >
-              {point.time}
-            </text>
-          );
-        })}
-      </svg>
+          <Tooltip />
+          <Line
+            type="monotone"
+            dataKey="temp"
+            stroke="#38bdf8"
+            strokeWidth={3}
+            dot={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

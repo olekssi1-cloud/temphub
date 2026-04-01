@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import TemperatureChart from "./components/TemperatureChart";
 
 type LatestData = {
   temp: number | null;
@@ -21,24 +22,25 @@ function formatTemp(value: number | null) {
   return value !== null && !Number.isNaN(value) ? `${value.toFixed(1)}°C` : "--°C";
 }
 
-function formatXAxisLabel(dateString: string, range: RangeType) {
-  const date = new Date(dateString);
-
-  if (range === "1h" || range === "10h" || range === "24h") {
-    return date.toLocaleTimeString("uk-UA", {
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "Europe/Kyiv",
-    });
+function getSensorStatus(latest: LatestData | null) {
+  if (!latest || !latest.updatedAt) {
+    return "offline";
   }
 
-  return date.toLocaleString("uk-UA", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Kyiv",
-  });
+  const updatedAt = new Date(latest.updatedAt).getTime();
+  const diffMs = Date.now() - updatedAt;
+
+  if (diffMs > 60 * 1000) {
+    return "offline";
+  }
+
+  return "ok";
+}
+
+function getStatusColor(status: string) {
+  if (status === "offline") return "#facc15";
+  if (status === "ok") return "#10c433";
+  return "#94a3b8";
 }
 
 export default function HomePage() {
@@ -85,7 +87,7 @@ export default function HomePage() {
     const interval = setInterval(() => {
       loadLatest();
       loadHistory(range);
-    }, 5000);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [range]);
@@ -104,6 +106,9 @@ export default function HomePage() {
   const max24 = useMemo(() => {
     return last24h.length ? Math.max(...last24h.map((x) => x.temp)) : null;
   }, [last24h]);
+
+  const sensorStatus = getSensorStatus(latest);
+  const liveTemp = sensorStatus === "offline" ? null : latest?.temp ?? null;
 
   return (
     <main
@@ -159,7 +164,7 @@ export default function HomePage() {
 
         <section
           style={{
-            background: "#10c433",
+            background: getStatusColor(sensorStatus),
             borderRadius: 28,
             padding: 28,
             textAlign: "center",
@@ -167,10 +172,10 @@ export default function HomePage() {
           }}
         >
           <div style={{ fontSize: 92, fontWeight: 800, lineHeight: 1 }}>
-            {loadingLatest ? "..." : formatTemp(latest?.temp ?? null)}
+            {loadingLatest ? "..." : formatTemp(liveTemp)}
           </div>
           <div style={{ fontSize: 32, marginTop: 18 }}>
-            {loadingLatest ? "loading" : latest?.status ?? "unknown"}
+            {loadingLatest ? "loading" : sensorStatus}
           </div>
         </section>
 
@@ -259,33 +264,8 @@ export default function HomePage() {
 
           {loadingHistory ? (
             <p style={{ fontSize: 22 }}>Завантаження...</p>
-          ) : history.length === 0 ? (
-            <p style={{ fontSize: 22 }}>Немає даних для графіка</p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-              }}
-            >
-              {history.map((item, index) => (
-                <div
-                  key={`${item.time}-${index}`}
-                  style={{
-                    background: "#13295f",
-                    borderRadius: 16,
-                    padding: "12px 16px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    fontSize: 20,
-                  }}
-                >
-                  <span>{formatXAxisLabel(item.time, range)}</span>
-                  <strong>{item.temp.toFixed(1)}°C</strong>
-                </div>
-              ))}
-            </div>
+            <TemperatureChart data={history} range={range} />
           )}
         </section>
       </div>
