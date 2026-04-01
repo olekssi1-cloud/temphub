@@ -90,11 +90,11 @@ export default function TemperatureChart({ data, range }: Props) {
               borderRadius: 12,
               color: "white",
             }}
-            formatter={(value) => [
+            formatter={(value: unknown) => [
               `${Number(value).toFixed(1)}°C`,
               "Температура",
             ]}
-            labelFormatter={(label) => `Час: ${label}`}
+            labelFormatter={(label) => `Час: ${String(label)}`}
           />
 
           <Line
@@ -104,6 +104,7 @@ export default function TemperatureChart({ data, range }: Props) {
             strokeWidth={3}
             dot={false}
             activeDot={{ r: 5 }}
+            isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>
