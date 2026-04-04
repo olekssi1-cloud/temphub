@@ -4,6 +4,15 @@ import { sql } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type TempRow = {
+  temp: number;
+  created_at: Date | string;
+};
+
+function toDate(value: Date | string) {
+  return value instanceof Date ? value : new Date(value);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -16,38 +25,85 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await sql`
-      DELETE FROM sensor_outages
-      WHERE created_at < NOW() - INTERVAL '48 hours'
-    `;
+    const deviceId = String(sensorId);
 
-    const rows = await sql`
-      SELECT
-        id,
-        sensor_id,
-        started_at,
-        ended_at,
-        duration_seconds
-      FROM sensor_outages
-      WHERE sensor_id = ${sensorId}
-      ORDER BY started_at DESC
-    `;
+    const rows = (await sql`
+      SELECT temp, created_at
+      FROM temperature_logs
+      WHERE device_id = ${deviceId}
+        AND created_at >= NOW() - INTERVAL '49 hours'
+      ORDER BY created_at ASC
+    `) as TempRow[];
 
-    const data = rows.map((row: any) => ({
-      id: row.id,
-      sensorId: Number(row.sensor_id),
-      startedAt:
-        row.started_at instanceof Date
-          ? row.started_at.toISOString()
-          : new Date(row.started_at).toISOString(),
-      endedAt:
-        row.ended_at instanceof Date
-          ? row.ended_at.toISOString()
-          : new Date(row.ended_at).toISOString(),
-      durationSeconds: Number(row.duration_seconds),
-    }));
+    const outages: {
+      id: string;
+      sensorId: number;
+      startedAt: string;
+      endedAt: string | null;
+      durationSeconds: number;
+      active: boolean;
+    }[] = [];
 
-    return NextResponse.json(data, {
+    if (!rows.length) {
+      return NextResponse.json([], {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    for (let i = 1; i < rows.length; i++) {
+      const prev = toDate(rows[i - 1].created_at);
+      const curr = toDate(rows[i].created_at);
+
+      const diffSeconds = Math.floor((curr.getTime() - prev.getTime()) / 1000);
+
+      if (diffSeconds > 60) {
+        const startedAt = new Date(prev.getTime() + 60 * 1000);
+        const endedAt = curr;
+        const durationSeconds = Math.max(
+          0,
+          Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)
+        );
+
+        outages.push({
+          id: `${sensorId}-${startedAt.getTime()}`,
+          sensorId,
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          durationSeconds,
+          active: false,
+        });
+      }
+    }
+
+    const lastSeen = toDate(rows[rows.length - 1].created_at);
+    const now = new Date();
+    const diffNowSeconds = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
+
+    if (diffNowSeconds > 60) {
+      const startedAt = new Date(lastSeen.getTime() + 60 * 1000);
+      const durationSeconds = Math.max(
+        0,
+        Math.floor((now.getTime() - startedAt.getTime()) / 1000)
+      );
+
+      outages.unshift({
+        id: `${sensorId}-active-${startedAt.getTime()}`,
+        sensorId,
+        startedAt: startedAt.toISOString(),
+        endedAt: null,
+        durationSeconds,
+        active: true,
+      });
+    }
+
+    const filtered = outages.filter((item) => {
+      const started = new Date(item.startedAt).getTime();
+      return now.getTime() - started <= 48 * 60 * 60 * 1000;
+    });
+
+    return NextResponse.json(filtered, {
       headers: {
         "Cache-Control": "no-store",
       },

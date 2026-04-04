@@ -5,11 +5,12 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type OutageItem = {
-  id: number;
+  id: string;
   sensorId: number;
   startedAt: string;
-  endedAt: string;
+  endedAt: string | null;
   durationSeconds: number;
+  active: boolean;
 };
 
 const sensorNames: Record<string, string> = {
@@ -38,14 +39,8 @@ function formatDuration(totalSeconds: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (hours > 0) {
-    return `${hours} год ${minutes} хв`;
-  }
-
-  if (minutes > 0) {
-    return `${minutes} хв ${seconds} с`;
-  }
-
+  if (hours > 0) return `${hours} год ${minutes} хв`;
+  if (minutes > 0) return `${minutes} хв ${seconds} с`;
   return `${seconds} с`;
 }
 
@@ -55,41 +50,30 @@ export default function DisconnectsPage() {
 
   const [items, setItems] = useState<OutageItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadOutages() {
-      try {
-        setLoading(true);
-        setError("");
+    async function load() {
+      const res = await fetch(`/api/outages?sensorId=${id}`, {
+        cache: "no-store",
+      });
 
-        const res = await fetch(`/api/outages?sensorId=${id}`, {
-          cache: "no-store",
-        });
+      const json = await res.json();
 
-        const json = await res.json();
-
-        if (!cancelled) {
-          setItems(Array.isArray(json) ? json : []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError("Не вдалося завантажити відключення");
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+      if (!cancelled) {
+        setItems(Array.isArray(json) ? json : []);
+        setLoading(false);
       }
     }
 
-    loadOutages();
+    load();
+
+    const timer = setInterval(load, 1000);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [id]);
 
@@ -102,20 +86,18 @@ export default function DisconnectsPage() {
         padding: 20,
       }}
     >
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            gap: 16,
             marginBottom: 20,
-            flexWrap: "wrap",
           }}
         >
           <div>
-            <h1 style={{ fontSize: 34, margin: 0 }}>Відключення за 48 годин</h1>
-            <div style={{ opacity: 0.85, marginTop: 8 }}>
+            <h1 style={{ fontSize: 38, margin: 0 }}>Відключення за 48 годин</h1>
+            <div style={{ marginTop: 8, opacity: 0.8 }}>
               {sensorNames[id] ?? `Сенсор ${id}`}
             </div>
           </div>
@@ -123,11 +105,11 @@ export default function DisconnectsPage() {
           <Link
             href="/"
             style={{
+              background: "#173a84",
+              padding: "12px 18px",
+              borderRadius: 14,
               color: "white",
               textDecoration: "none",
-              background: "#173a84",
-              padding: "10px 16px",
-              borderRadius: 12,
               fontWeight: 700,
             }}
           >
@@ -136,33 +118,13 @@ export default function DisconnectsPage() {
         </div>
 
         {loading ? (
-          <div
-            style={{
-              background: "#10214f",
-              borderRadius: 20,
-              padding: 20,
-              fontSize: 18,
-            }}
-          >
-            Завантаження...
-          </div>
-        ) : error ? (
-          <div
-            style={{
-              background: "#5b1d28",
-              borderRadius: 20,
-              padding: 20,
-              fontSize: 18,
-            }}
-          >
-            {error}
-          </div>
+          <div>Завантаження...</div>
         ) : items.length === 0 ? (
           <div
             style={{
               background: "#10214f",
-              borderRadius: 20,
               padding: 20,
+              borderRadius: 20,
               fontSize: 18,
             }}
           >
@@ -174,31 +136,35 @@ export default function DisconnectsPage() {
               <div
                 key={item.id}
                 style={{
-                  background: "#10214f",
+                  background: item.active ? "#5b1d28" : "#10214f",
                   borderRadius: 20,
                   padding: 20,
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: 12,
+                  gap: 16,
                 }}
               >
                 <div>
-                  <div style={{ opacity: 0.75, fontSize: 13 }}>Початок</div>
-                  <div style={{ fontWeight: 700, marginTop: 4 }}>
+                  <div style={{ opacity: 0.75 }}>Початок</div>
+                  <div style={{ fontWeight: 700, marginTop: 6 }}>
                     {formatKyivDateTime(item.startedAt)}
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ opacity: 0.75, fontSize: 13 }}>Кінець</div>
-                  <div style={{ fontWeight: 700, marginTop: 4 }}>
-                    {formatKyivDateTime(item.endedAt)}
+                  <div style={{ opacity: 0.75 }}>Кінець</div>
+                  <div style={{ fontWeight: 700, marginTop: 6 }}>
+                    {item.active
+                      ? "ще триває"
+                      : formatKyivDateTime(item.endedAt!)}
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ opacity: 0.75, fontSize: 13 }}>Тривалість</div>
-                  <div style={{ fontWeight: 700, marginTop: 4 }}>
+                  <div style={{ opacity: 0.75 }}>
+                    {item.active ? "Триває зараз" : "Тривалість"}
+                  </div>
+                  <div style={{ fontWeight: 700, marginTop: 6 }}>
                     {formatDuration(item.durationSeconds)}
                   </div>
                 </div>
