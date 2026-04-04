@@ -13,6 +13,8 @@ function toDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
 }
 
+const OUTAGE_SECONDS = 180; // 3 хвилини
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -58,9 +60,10 @@ export async function GET(request: NextRequest) {
 
       const diffSeconds = Math.floor((curr.getTime() - prev.getTime()) / 1000);
 
-      if (diffSeconds > 60) {
-        const startedAt = new Date(prev.getTime() + 60 * 1000);
+      if (diffSeconds > OUTAGE_SECONDS) {
+        const startedAt = new Date(prev.getTime() + OUTAGE_SECONDS * 1000);
         const endedAt = curr;
+
         const durationSeconds = Math.max(
           0,
           Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)
@@ -81,8 +84,9 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const diffNowSeconds = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
 
-    if (diffNowSeconds > 60) {
-      const startedAt = new Date(lastSeen.getTime() + 60 * 1000);
+    if (diffNowSeconds > OUTAGE_SECONDS) {
+      const startedAt = new Date(lastSeen.getTime() + OUTAGE_SECONDS * 1000);
+
       const durationSeconds = Math.max(
         0,
         Math.floor((now.getTime() - startedAt.getTime()) / 1000)

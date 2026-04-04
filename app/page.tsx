@@ -34,7 +34,7 @@ const initialSensors: SensorCard[] = [
 
 function isOffline(sensor: SensorCard) {
   if (!sensor.connected || !sensor.updatedAt) return false;
-  return Date.now() - new Date(sensor.updatedAt).getTime() > 60_000;
+  return Date.now() - new Date(sensor.updatedAt).getTime() > 180_000;
 }
 
 function MiniChart({ offline }: { offline: boolean }) {
