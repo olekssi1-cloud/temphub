@@ -12,10 +12,8 @@ function getRangeToInterval(range: string) {
       return "10 hours";
     case "24h":
       return "24 hours";
-    case "5d":
-      return "5 days";
-    case "10d":
-      return "10 days";
+    case "3d":
+      return "3 days";
     default:
       return "24 hours";
   }
@@ -28,7 +26,9 @@ export async function GET(request: NextRequest) {
     const intervalValue = getRangeToInterval(range);
 
     const rows = await sql`
-      SELECT temp, created_at
+      SELECT
+        temp,
+        (created_at AT TIME ZONE 'UTC') AS time
       FROM temperature_logs
       WHERE created_at >= NOW() - CAST(${intervalValue} AS interval)
       ORDER BY created_at ASC
@@ -36,7 +36,10 @@ export async function GET(request: NextRequest) {
 
     const data = rows.map((row: any) => ({
       temp: Number(row.temp),
-      time: row.created_at,
+      time:
+        row.time instanceof Date
+          ? row.time.toISOString()
+          : new Date(row.time).toISOString(),
     }));
 
     return NextResponse.json(data, {
