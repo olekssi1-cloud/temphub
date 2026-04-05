@@ -29,14 +29,14 @@ const initialSensors: SensorCard[] = [
   { id: 3, title: "Супорос 2", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
   { id: 4, title: "Супорос 3", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
   { id: 5, title: "Відгодівля", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
-  { id: 6, title: "Дорощювання", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
+  { id: 6, title: "Дорощування", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
   { id: 7, title: "Рем свинки", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
   { id: 8, title: "Двір", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
 ];
 
 function isOffline(sensor: SensorCard) {
-  if (!sensor.connected || !sensor.updatedAt) return false;
-  return Date.now() - new Date(sensor.updatedAt).getTime() > 180_000;
+  if (!sensor.updatedAt) return true;
+  return Date.now() - new Date(sensor.updatedAt).getTime() > 180000;
 }
 
 function MiniChart({ offline }: { offline: boolean }) {
@@ -109,7 +109,7 @@ function Card({ sensor }: { sensor: SensorCard }) {
       >
         <div>
           <div style={{ fontSize: 14 }}>
-            Min {sensor.min24.toFixed(1)} • Max {sensor.max24.toFixed(1)}
+            Min {offline ? "0.0" : sensor.min24.toFixed(1)} • Max {offline ? "0.0" : sensor.max24.toFixed(1)}
           </div>
 
           <Link
@@ -128,7 +128,7 @@ function Card({ sensor }: { sensor: SensorCard }) {
             Відключення
           </Link>
 
-          {!sensor.connected && (
+          {offline && (
             <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
               Очікує сенсор
             </div>
@@ -141,34 +141,50 @@ function Card({ sensor }: { sensor: SensorCard }) {
   );
 }
 
+async function loadSensorSummary(sensorId: number): Promise<HomeSummaryResponse> {
+  const res = await fetch(`/api/home-summary?sensorId=${sensorId}`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    return {};
+  }
+
+  return res.json();
+}
+
 export default function Page() {
   const [sensors, setSensors] = useState(initialSensors);
 
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/home-summary?sensorId=1", {
-          cache: "no-store",
-        });
-
-        const data: HomeSummaryResponse = await res.json();
+        const [sensor1, sensor2] = await Promise.all([
+          loadSensorSummary(1),
+          loadSensorSummary(2),
+        ]);
 
         setSensors((prev) =>
-          prev.map((sensor) =>
-            sensor.id === 1
-              ? {
-                  ...sensor,
-                  temp: typeof data.temp === "number" ? data.temp : 0,
-                  updatedAt: data.updatedAt ?? null,
-                  connected: !!data.updatedAt || typeof data.temp === "number",
-                  min24: typeof data.min24 === "number" ? data.min24 : 0,
-                  max24: typeof data.max24 === "number" ? data.max24 : 0,
-                }
-              : sensor
-          )
+          prev.map((sensor) => {
+            const apiData =
+              sensor.id === 1 ? sensor1 :
+              sensor.id === 2 ? sensor2 :
+              null;
+
+            if (!apiData) return sensor;
+
+            return {
+              ...sensor,
+              temp: typeof apiData.temp === "number" ? apiData.temp : 0,
+              updatedAt: apiData.updatedAt ?? null,
+              connected: !!apiData.updatedAt,
+              min24: typeof apiData.min24 === "number" ? apiData.min24 : 0,
+              max24: typeof apiData.max24 === "number" ? apiData.max24 : 0,
+            };
+          })
         );
       } catch (e) {
-        console.error("home summary load error", e);
+        console.error("home load error", e);
       }
     }
 
@@ -178,7 +194,7 @@ export default function Page() {
   }, []);
 
   const onlineCount = useMemo(
-    () => sensors.filter((s) => s.connected && !isOffline(s)).length,
+    () => sensors.filter((s) => !isOffline(s)).length,
     [sensors]
   );
 
