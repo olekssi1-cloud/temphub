@@ -9,11 +9,12 @@ type TempRow = {
   created_at: Date | string;
 };
 
-function toDate(value: Date | string) {
-  return value instanceof Date ? value : new Date(value);
-}
-
 const OUTAGE_SECONDS = 180; // 3 хвилини
+
+function toUtcDate(value: Date | string) {
+  if (value instanceof Date) return value;
+  return new Date(value);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,7 +31,9 @@ export async function GET(request: NextRequest) {
     const deviceId = String(sensorId);
 
     const rows = (await sql`
-      SELECT temp, created_at
+      SELECT
+        temp,
+        (created_at AT TIME ZONE 'UTC') AS created_at
       FROM temperature_logs
       WHERE device_id = ${deviceId}
         AND created_at >= NOW() - INTERVAL '49 hours'
@@ -55,8 +58,8 @@ export async function GET(request: NextRequest) {
     }
 
     for (let i = 1; i < rows.length; i++) {
-      const prev = toDate(rows[i - 1].created_at);
-      const curr = toDate(rows[i].created_at);
+      const prev = toUtcDate(rows[i - 1].created_at);
+      const curr = toUtcDate(rows[i].created_at);
 
       const diffSeconds = Math.floor((curr.getTime() - prev.getTime()) / 1000);
 
@@ -80,7 +83,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const lastSeen = toDate(rows[rows.length - 1].created_at);
+    const lastSeen = toUtcDate(rows[rows.length - 1].created_at);
     const now = new Date();
     const diffNowSeconds = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
 

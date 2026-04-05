@@ -21,6 +21,12 @@ type LatestApiResponse = {
   updatedAt?: string | null;
 };
 
+type HistoryPoint = {
+  temp?: number;
+  temperature?: number;
+  value?: number;
+};
+
 const initialSensors: SensorCard[] = [
   { id: 1, title: "Опорос", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
   { id: 2, title: "Супорос 1", temp: 0, humidity: 0, fan: 0, min24: 0, max24: 0, updatedAt: null, connected: false },
@@ -49,6 +55,7 @@ function MiniChart({ offline }: { offline: boolean }) {
         justifyContent: "center",
         color: offline ? "#ffb3b3" : "#77d8ff",
         fontSize: 13,
+        fontWeight: 700,
       }}
     >
       24h
@@ -83,7 +90,14 @@ function Card({ sensor }: { sensor: SensorCard }) {
         <strong>{offline ? "0.0°C" : `${sensor.temp.toFixed(1)}°C`}</strong>
         <span>💧 {offline ? 0 : sensor.humidity}%</span>
         <span>🌀 {offline ? 0 : sensor.fan}%</span>
-        <Link href={`/chart/${sensor.id}`} style={{ color: "#dff6ff", textDecoration: "none" }}>
+        <Link
+          href={`/chart/${sensor.id}`}
+          style={{
+            color: "#dff6ff",
+            textDecoration: "none",
+            fontWeight: 700,
+          }}
+        >
           Графік
         </Link>
       </div>
@@ -130,23 +144,44 @@ function Card({ sensor }: { sensor: SensorCard }) {
   );
 }
 
+function extractTemps(input: unknown): number[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((item: HistoryPoint) =>
+      Number(item?.temp ?? item?.temperature ?? item?.value ?? NaN)
+    )
+    .filter((v) => !Number.isNaN(v));
+}
+
 export default function Page() {
   const [sensors, setSensors] = useState(initialSensors);
 
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/latest", { cache: "no-store" });
-        const data: LatestApiResponse = await res.json();
+        const [latestRes, historyRes] = await Promise.all([
+          fetch("/api/latest", { cache: "no-store" }),
+          fetch("/api/history?range=24h", { cache: "no-store" }),
+        ]);
+
+        const latest: LatestApiResponse = await latestRes.json();
+        const historyJson = await historyRes.json();
+
+        const temps = extractTemps(historyJson);
+        const min24 = temps.length ? Math.min(...temps) : 0;
+        const max24 = temps.length ? Math.max(...temps) : 0;
 
         setSensors((prev) =>
           prev.map((sensor) =>
             sensor.id === 1
               ? {
                   ...sensor,
-                  temp: typeof data.temp === "number" ? data.temp : 0,
-                  updatedAt: data.updatedAt ?? null,
-                  connected: !!data.updatedAt || typeof data.temp === "number",
+                  temp: typeof latest.temp === "number" ? latest.temp : 0,
+                  updatedAt: latest.updatedAt ?? null,
+                  connected: !!latest.updatedAt || typeof latest.temp === "number",
+                  min24,
+                  max24,
                 }
               : sensor
           )
