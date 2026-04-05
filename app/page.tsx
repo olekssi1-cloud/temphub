@@ -21,7 +21,7 @@ type LatestApiResponse = {
   updatedAt?: string | null;
 };
 
-type HistoryPoint = {
+type HistoryRow = {
   temp?: number;
   temperature?: number;
   value?: number;
@@ -90,6 +90,7 @@ function Card({ sensor }: { sensor: SensorCard }) {
         <strong>{offline ? "0.0°C" : `${sensor.temp.toFixed(1)}°C`}</strong>
         <span>💧 {offline ? 0 : sensor.humidity}%</span>
         <span>🌀 {offline ? 0 : sensor.fan}%</span>
+
         <Link
           href={`/chart/${sensor.id}`}
           style={{
@@ -144,11 +145,24 @@ function Card({ sensor }: { sensor: SensorCard }) {
   );
 }
 
-function extractTemps(input: unknown): number[] {
-  if (!Array.isArray(input)) return [];
+function normalizeHistoryArray(input: unknown): HistoryRow[] {
+  if (Array.isArray(input)) return input as HistoryRow[];
 
-  return input
-    .map((item: HistoryPoint) =>
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (Array.isArray(obj.data)) return obj.data as HistoryRow[];
+    if (Array.isArray(obj.history)) return obj.history as HistoryRow[];
+    if (Array.isArray(obj.rows)) return obj.rows as HistoryRow[];
+  }
+
+  return [];
+}
+
+function extractTemps(input: unknown): number[] {
+  const rows = normalizeHistoryArray(input);
+
+  return rows
+    .map((item) =>
       Number(item?.temp ?? item?.temperature ?? item?.value ?? NaN)
     )
     .filter((v) => !Number.isNaN(v));
@@ -169,8 +183,8 @@ export default function Page() {
         const historyJson = await historyRes.json();
 
         const temps = extractTemps(historyJson);
-        const min24 = temps.length ? Math.min(...temps) : 0;
-        const max24 = temps.length ? Math.max(...temps) : 0;
+        const min24 = temps.length > 0 ? Math.min(...temps) : 0;
+        const max24 = temps.length > 0 ? Math.max(...temps) : 0;
 
         setSensors((prev) =>
           prev.map((sensor) =>
@@ -179,15 +193,16 @@ export default function Page() {
                   ...sensor,
                   temp: typeof latest.temp === "number" ? latest.temp : 0,
                   updatedAt: latest.updatedAt ?? null,
-                  connected: !!latest.updatedAt || typeof latest.temp === "number",
+                  connected:
+                    !!latest.updatedAt || typeof latest.temp === "number",
                   min24,
                   max24,
                 }
               : sensor
           )
         );
-      } catch (e) {
-        console.error(e);
+      } catch (error) {
+        console.error("Main page load error:", error);
       }
     }
 
