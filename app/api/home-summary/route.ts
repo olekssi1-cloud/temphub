@@ -4,18 +4,25 @@ import { sql } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function toIso(value: unknown) {
+  if (!value) return null;
+  return new Date(String(value)).toISOString();
+}
+
 export async function GET() {
   try {
     const sensorIds = [1, 2, 3, 4, 5, 6, 7, 8];
 
     const sensors = await Promise.all(
       sensorIds.map(async (id) => {
+        const deviceId = String(id);
+
         const latestRows = await sql`
           SELECT
             temp,
             created_at
           FROM temperature_logs
-          WHERE device_id::text = ${String(id)}
+          WHERE CAST(device_id AS TEXT) = ${deviceId}
           ORDER BY created_at DESC
           LIMIT 1
         `;
@@ -25,27 +32,24 @@ export async function GET() {
             MIN(temp) AS min_temp,
             MAX(temp) AS max_temp
           FROM temperature_logs
-          WHERE device_id::text = ${String(id)}
+          WHERE CAST(device_id AS TEXT) = ${deviceId}
             AND created_at >= NOW() - INTERVAL '24 hours'
         `;
 
         const latest = latestRows[0] ?? null;
         const stats = statsRows[0] ?? null;
 
-        const updatedAt = latest?.created_at
-          ? new Date(latest.created_at).toISOString()
-          : null;
-
+        const updatedAt = toIso(latest?.created_at);
         const online =
           !!updatedAt &&
           Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000;
 
         return {
-          id: String(id),
+          id,
           temp: latest ? Number(latest.temp) : 0,
           updatedAt,
-          min24: stats?.min_temp ? Number(stats.min_temp) : 0,
-          max24: stats?.max_temp ? Number(stats.max_temp) : 0,
+          min24: stats?.min_temp != null ? Number(stats.min_temp) : 0,
+          max24: stats?.max_temp != null ? Number(stats.max_temp) : 0,
           online,
         };
       })
@@ -66,10 +70,15 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json(
       {
-        error: "summary failed",
-        details: String(error),
+        ok: false,
+        error: String(error),
       },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
     );
   }
 }
