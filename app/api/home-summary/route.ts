@@ -1,38 +1,69 @@
 import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
   try {
-    const sensors = [1, 2, 3, 4, 5, 6, 7, 8];
+    const sensorIds = [1, 2, 3, 4, 5, 6, 7, 8];
 
-    let online = 0;
-    let totalTemp = 0;
-    let count = 0;
+    const sensors = await Promise.all(
+      sensorIds.map(async (id) => {
+        const deviceId = String(id);
 
-    for (const id of sensors) {
-      const res = await fetch(
-        `https://mishchenko.in.ua/api/temperature/latest?sensorId=${id}`,
-        { cache: "no-store" }
-      );
+        const latestRows = await sql`
+          SELECT temp, (created_at AT TIME ZONE 'UTC') AS created_at
+          FROM temperature_logs
+          WHERE device_id = ${deviceId}
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
 
-      if (!res.ok) continue;
+        const statsRows = await sql`
+          SELECT
+            MIN(temp) AS min_temp,
+            MAX(temp) AS max_temp
+          FROM temperature_logs
+          WHERE device_id = ${deviceId}
+            AND created_at >= NOW() - INTERVAL '24 hours'
+        `;
 
-      const data = await res.json();
+        const latest = latestRows?.[0] ?? null;
+        const stats = statsRows?.[0] ?? null;
 
-      if (data?.temp) {
-        online++;
-        totalTemp += Number(data.temp);
-        count++;
-      }
-    }
+        const updatedAt = latest?.created_at
+          ? latest.created_at instanceof Date
+            ? latest.created_at.toISOString()
+            : new Date(latest.created_at).toISOString()
+          : null;
+
+        const online =
+          !!updatedAt &&
+          Date.now() - new Date(updatedAt).getTime() < 3 * 60 * 1000;
+
+        return {
+          id,
+          temp: latest ? Number(latest.temp) : 0,
+          updatedAt,
+          min24: stats?.min_temp != null ? Number(stats.min_temp) : 0,
+          max24: stats?.max_temp != null ? Number(stats.max_temp) : 0,
+          online,
+        };
+      })
+    );
 
     return NextResponse.json({
-      total: sensors.length,
-      online,
-      avgTemp: count ? +(totalTemp / count).toFixed(1) : 0,
+      sensors,
+      onlineCount: sensors.filter((s) => s.online).length,
+      totalCount: sensors.length,
     });
   } catch (error) {
     return NextResponse.json(
-      { error: "summary failed" },
+      {
+        ok: false,
+        error: String(error),
+      },
       { status: 500 }
     );
   }
