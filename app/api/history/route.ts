@@ -22,24 +22,31 @@ function getRangeToInterval(range: string) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+
     const range = searchParams.get("range") || "24h";
+    const sensorId =
+      searchParams.get("sensorId") ||
+      searchParams.get("device_id") ||
+      "1";
+
     const intervalValue = getRangeToInterval(range);
+    const deviceId = String(sensorId).trim();
 
     const rows = await sql`
-      SELECT
-        temp,
-        (created_at AT TIME ZONE 'UTC') AS time
+      SELECT temp, created_at
       FROM temperature_logs
-      WHERE created_at >= NOW() - CAST(${intervalValue} AS interval)
+      WHERE CAST(device_id AS TEXT) = ${deviceId}
+        AND created_at >= NOW() - CAST(${intervalValue} AS interval)
+        AND temp > -100
       ORDER BY created_at ASC
     `;
 
     const data = rows.map((row: any) => ({
       temp: Number(row.temp),
       time:
-        row.time instanceof Date
-          ? row.time.toISOString()
-          : new Date(row.time).toISOString(),
+        row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : new Date(row.created_at).toISOString(),
     }));
 
     return NextResponse.json(data, {
