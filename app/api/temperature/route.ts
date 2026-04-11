@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const tempRaw = searchParams.get("temp");
+    const rpmRaw = searchParams.get("rpm");
+
     const deviceIdRaw =
       searchParams.get("device_id") ||
       searchParams.get("deviceId") ||
@@ -38,10 +40,27 @@ export async function GET(request: NextRequest) {
       return makeJson({ ok: false, error: "Invalid device id" }, 400);
     }
 
+    // Температура — як і раніше в історію
     await sql`
       INSERT INTO temperature_logs (device_id, temp, created_at)
       VALUES (${deviceId}, ${temp}, NOW())
     `;
+
+    // RPM — тільки поточне значення, без історії
+    if (rpmRaw !== null) {
+      const rpm = Number(rpmRaw);
+
+      if (!Number.isNaN(rpm)) {
+        await sql`
+          INSERT INTO motor_live (device_id, rpm, updated_at)
+          VALUES (${deviceId}, ${Math.round(rpm)}, NOW())
+          ON CONFLICT (device_id)
+          DO UPDATE SET
+            rpm = EXCLUDED.rpm,
+            updated_at = NOW()
+        `;
+      }
+    }
 
     const latestRows = await sql`
       SELECT

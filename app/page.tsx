@@ -85,7 +85,7 @@ function SensorCard({ sensor }: { sensor: Sensor }) {
         </strong>
 
         <span>💧 0%</span>
-        <span>🌀 0%</span>
+        <span>🌀 {sensor.rpm ?? 0}%</span>
 
         <Link
           href={`/chart/${sensor.id}`}

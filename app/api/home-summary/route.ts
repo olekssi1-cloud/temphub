@@ -18,10 +18,8 @@ export async function GET() {
         const deviceId = String(id);
 
         const latestRows = await sql`
-          SELECT
-            temp,
-            created_at
-          FROM temperature_logs
+          SELECT temp, created_at
+          FROM name
           WHERE CAST(device_id AS TEXT) = ${deviceId}
           ORDER BY created_at DESC
           LIMIT 1
@@ -31,15 +29,26 @@ export async function GET() {
           SELECT
             MIN(temp) AS min_temp,
             MAX(temp) AS max_temp
-          FROM temperature_logs
+          FROM name
           WHERE CAST(device_id AS TEXT) = ${deviceId}
             AND created_at >= NOW() - INTERVAL '24 hours'
+            AND temp > -100
+          LIMIT 1
+        `;
+
+        const rpmRows = await sql`
+          SELECT rpm, updated_at
+          FROM motor_live
+          WHERE device_id = ${deviceId}
+          LIMIT 1
         `;
 
         const latest = latestRows[0] ?? null;
         const stats = statsRows[0] ?? null;
+        const rpmLive = rpmRows[0] ?? null;
 
         const updatedAt = toIso(latest?.created_at);
+
         const online =
           !!updatedAt &&
           Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000;
@@ -51,6 +60,7 @@ export async function GET() {
           min24: stats?.min_temp != null ? Number(stats.min_temp) : 0,
           max24: stats?.max_temp != null ? Number(stats.max_temp) : 0,
           online,
+          rpm: rpmLive?.rpm != null ? Number(rpmLive.rpm) : 0,
         };
       })
     );
