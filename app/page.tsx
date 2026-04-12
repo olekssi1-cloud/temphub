@@ -11,6 +11,7 @@ type Sensor = {
   min24: number;
   max24: number;
   online: boolean;
+  rpm?: number;
 };
 
 type HomeSummaryResponse = {
@@ -172,6 +173,7 @@ export default function Page() {
         min24: 0,
         max24: 0,
         online: false,
+        rpm: 0,
       }));
     }
 
@@ -186,6 +188,7 @@ export default function Page() {
           min24: 0,
           max24: 0,
           online: false,
+          rpm: 0,
         }
       );
     });
