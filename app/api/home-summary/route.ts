@@ -1,5 +1,13 @@
-import { sql } from "@vercel/postgres";
 import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function toIso(value: unknown) {
+  if (!value) return null;
+  return new Date(String(value)).toISOString();
+}
 
 export async function GET() {
   try {
@@ -7,69 +15,101 @@ export async function GET() {
 
     const sensors = await Promise.all(
       sensorIds.map(async (id) => {
-        // ✅ беремо останню температуру
-        const latestTemp = await sql`
-          SELECT temp, updated_at
-          FROM sensor_data
-          WHERE device_id = ${String(id)}
-          ORDER BY updated_at DESC
+        const deviceId = String(id);
+
+        // Остання температура
+        const latestRows = await sql`
+          SELECT temp, created_at
+          FROM name
+          WHERE CAST(device_id AS TEXT) = ${deviceId}
+          ORDER BY created_at DESC
           LIMIT 1
         `;
 
-        const tempRow = latestTemp.rows[0];
-
-        // ✅ rpm
-        const latestMotor = await sql`
-          SELECT rpm
-          FROM motor_live
-          WHERE device_id = ${String(id)}
-          LIMIT 1
-        `;
-
-        const rpm = Number(latestMotor.rows[0]?.rpm ?? 0);
-
-        // ✅ min/max за 24 години
-        const stats = await sql`
+        // Min / Max за 24 години
+        const statsRows = await sql`
           SELECT
-            MIN(temp) as min,
-            MAX(temp) as max
-          FROM sensor_data
-          WHERE device_id = ${String(id)}
-            AND updated_at > NOW() - INTERVAL '24 HOURS'
+            MIN(temp) AS min_temp,
+            MAX(temp) AS max_temp
+          FROM name
+          WHERE CAST(device_id AS TEXT) = ${deviceId}
+            AND created_at >= NOW() - INTERVAL '24 hours'
+            AND temp > -100
         `;
 
-        const stat = stats.rows[0];
+        // RPM з motor_live
+        let rpm = 0;
+        try {
+          const rpmRows = await sql`
+            SELECT rpm
+            FROM motor_live
+            WHERE device_id = ${deviceId}
+            LIMIT 1
+          `;
 
-        const updatedAt = tempRow?.updated_at ?? null;
+          rpm = rpmRows?.[0]?.rpm != null ? Number(rpmRows[0].rpm) : 0;
+        } catch {
+          rpm = 0;
+        }
 
-        const online = updatedAt
-          ? Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000
-          : false;
+        const latest = latestRows?.[0] ?? null;
+        const stats = statsRows?.[0] ?? null;
+
+        const updatedAt = toIso(latest?.created_at);
+
+        const online =
+          !!updatedAt &&
+          Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000;
 
         return {
           id,
-          temp: Number(tempRow?.temp ?? 0),
+          temp: latest ? Number(latest.temp) : 0,
           updatedAt,
-          min24: Number(stat?.min ?? 0),
-          max24: Number(stat?.max ?? 0),
-          rpm,
+          min24: stats?.min_temp != null ? Number(stats.min_temp) : 0,
+          max24: stats?.max_temp != null ? Number(stats.max_temp) : 0,
           online,
+          rpm,
         };
       })
     );
 
-    return NextResponse.json({
-      sensors,
-      onlineCount: sensors.filter((s) => s.online).length,
-      totalCount: sensorIds.length,
-    });
+    return NextResponse.json(
+      {
+        sensors,
+        onlineCount: sensors.filter((s) => s.online).length,
+        totalCount: sensors.length,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    );
   } catch (error) {
     console.error("home-summary error", error);
 
-    return NextResponse.json({
-      sensors: [],
-      onlineCount: 0,
-      totalCount: 8,
-    });
+    return NextResponse.json(
+      {
+        sensors: [1, 2, 3, 4, 5, 6, 7, 8].map((id) => ({
+          id,
+          temp: 0,
+          updatedAt: null,
+          min24: 0,
+          max24: 0,
+          online: false,
+          rpm: 0,
+        })),
+        onlineCount: 0,
+        totalCount: 8,
+        ok: false,
+        error: String(error),
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    );
   }
 }
