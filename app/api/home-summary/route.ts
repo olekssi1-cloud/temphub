@@ -4,112 +4,96 @@ import { sql } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function toIso(value: unknown) {
-  if (!value) return null;
-  return new Date(String(value)).toISOString();
-}
-
 export async function GET() {
   try {
     const sensorIds = [1, 2, 3, 4, 5, 6, 7, 8];
 
     const sensors = await Promise.all(
       sensorIds.map(async (id) => {
-        const deviceId = String(id);
-
-        // Остання температура
-        const latestRows = await sql`
-          SELECT temp, created_at
-          FROM name
-          WHERE CAST(device_id AS TEXT) = ${deviceId}
-          ORDER BY created_at DESC
-          LIMIT 1
-        `;
-
-        // Min / Max за 24 години
-        const statsRows = await sql`
-          SELECT
-            MIN(temp) AS min_temp,
-            MAX(temp) AS max_temp
-          FROM name
-          WHERE CAST(device_id AS TEXT) = ${deviceId}
-            AND created_at >= NOW() - INTERVAL '24 hours'
-            AND temp > -100
-        `;
-
-        // RPM з motor_live
+        let temp = 0;
+        let updatedAt: string | null = null;
+        let min24 = 0;
+        let max24 = 0;
         let rpm = 0;
+
+        // ===== TEMPERATURE =====
         try {
-          const rpmRows = await sql`
-            SELECT rpm
-            FROM motor_live
-            WHERE device_id = ${deviceId}
+          const tempRows = await sql`
+            SELECT temp, updated_at
+            FROM sensor_data
+            WHERE device_id = ${String(id)}
+            ORDER BY updated_at DESC
             LIMIT 1
           `;
 
-          rpm = rpmRows?.[0]?.rpm != null ? Number(rpmRows[0].rpm) : 0;
-        } catch {
-          rpm = 0;
+          if (tempRows.length > 0) {
+            temp = Number(tempRows[0].temp);
+            updatedAt = tempRows[0].updated_at
+              ? new Date(tempRows[0].updated_at).toISOString()
+              : null;
+          }
+
+          const statRows = await sql`
+            SELECT
+              MIN(temp) as min_temp,
+              MAX(temp) as max_temp
+            FROM sensor_data
+            WHERE device_id = ${String(id)}
+              AND updated_at >= NOW() - INTERVAL '24 hours'
+          `;
+
+          if (statRows.length > 0) {
+            min24 = Number(statRows[0].min_temp ?? 0);
+            max24 = Number(statRows[0].max_temp ?? 0);
+          }
+        } catch (e) {
+          console.log("temp read error", id, e);
         }
 
-        const latest = latestRows?.[0] ?? null;
-        const stats = statsRows?.[0] ?? null;
+        // ===== MOTOR =====
+        try {
+          const motorRows = await sql`
+            SELECT rpm
+            FROM motor_live
+            WHERE device_id = ${String(id)}
+            LIMIT 1
+          `;
 
-        const updatedAt = toIso(latest?.created_at);
+          if (motorRows.length > 0) {
+            rpm = Number(motorRows[0].rpm ?? 0);
+          }
+        } catch (e) {
+          console.log("rpm read error", id, e);
+        }
 
         const online =
-          !!updatedAt &&
+          updatedAt &&
           Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000;
 
         return {
           id,
-          temp: latest ? Number(latest.temp) : 0,
+          temp,
           updatedAt,
-          min24: stats?.min_temp != null ? Number(stats.min_temp) : 0,
-          max24: stats?.max_temp != null ? Number(stats.max_temp) : 0,
-          online,
+          min24,
+          max24,
+          online: !!online,
           rpm,
         };
       })
     );
 
-    return NextResponse.json(
-      {
-        sensors,
-        onlineCount: sensors.filter((s) => s.online).length,
-        totalCount: sensors.length,
-      },
-      {
-        headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-        },
-      }
-    );
+    return NextResponse.json({
+      sensors,
+      onlineCount: sensors.filter((s) => s.online).length,
+      totalCount: sensors.length,
+    });
   } catch (error) {
-    console.error("home-summary error", error);
-
-    return NextResponse.json(
-      {
-        sensors: [1, 2, 3, 4, 5, 6, 7, 8].map((id) => ({
-          id,
-          temp: 0,
-          updatedAt: null,
-          min24: 0,
-          max24: 0,
-          online: false,
-          rpm: 0,
-        })),
-        onlineCount: 0,
-        totalCount: 8,
-        ok: false,
-        error: String(error),
-      },
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-        },
-      }
-    );
+    console.error("home-summary fatal", error);
+    return NextResponse.json({
+      sensors: [],
+      onlineCount: 0,
+      totalCount: 8,
+      error: String(error),
+    });
   }
 }
