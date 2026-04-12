@@ -13,6 +13,19 @@ export async function GET() {
   try {
     const sensorIds = [1, 2, 3, 4, 5, 6, 7, 8];
 
+    // Перевіряємо, чи є таблиця motor_live.
+    // Якщо її немає в production БД, сайт все одно не впаде.
+    const motorTableCheck = await sql`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'motor_live'
+      ) AS exists
+    `;
+
+    const hasMotorLive = Boolean(motorTableCheck?.[0]?.exists);
+
     const sensors = await Promise.all(
       sensorIds.map(async (id) => {
         const deviceId = String(id);
@@ -33,19 +46,23 @@ export async function GET() {
           WHERE CAST(device_id AS TEXT) = ${deviceId}
             AND created_at >= NOW() - INTERVAL '24 hours'
             AND temp > -100
-          LIMIT 1
         `;
 
-        const rpmRows = await sql`
-          SELECT rpm, updated_at
-          FROM motor_live
-          WHERE device_id = ${deviceId}
-          LIMIT 1
-        `;
+        let rpm = 0;
 
-        const latest = latestRows[0] ?? null;
-        const stats = statsRows[0] ?? null;
-        const rpmLive = rpmRows[0] ?? null;
+        if (hasMotorLive) {
+          const rpmRows = await sql`
+            SELECT rpm
+            FROM motor_live
+            WHERE device_id = ${deviceId}
+            LIMIT 1
+          `;
+
+          rpm = rpmRows?.[0]?.rpm != null ? Number(rpmRows[0].rpm) : 0;
+        }
+
+        const latest = latestRows?.[0] ?? null;
+        const stats = statsRows?.[0] ?? null;
 
         const updatedAt = toIso(latest?.created_at);
 
@@ -60,7 +77,7 @@ export async function GET() {
           min24: stats?.min_temp != null ? Number(stats.min_temp) : 0,
           max24: stats?.max_temp != null ? Number(stats.max_temp) : 0,
           online,
-          rpm: rpmLive?.rpm != null ? Number(rpmLive.rpm) : 0,
+          rpm,
         };
       })
     );
@@ -78,13 +95,27 @@ export async function GET() {
       }
     );
   } catch (error) {
+    console.error("home-summary error", error);
+
+    // Навіть якщо сталася помилка, сайт не повинен падати
     return NextResponse.json(
       {
+        sensors: [1, 2, 3, 4, 5, 6, 7, 8].map((id) => ({
+          id,
+          temp: 0,
+          updatedAt: null,
+          min24: 0,
+          max24: 0,
+          online: false,
+          rpm: 0,
+        })),
+        onlineCount: 0,
+        totalCount: 8,
         ok: false,
         error: String(error),
       },
       {
-        status: 500,
+        status: 200,
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate",
         },
