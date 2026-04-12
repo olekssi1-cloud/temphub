@@ -7,54 +7,48 @@ export async function GET() {
 
     const sensors = await Promise.all(
       sensorIds.map(async (id) => {
-        // остання температура
-        const latest = await sql`
-          SELECT temp, created_at
-          FROM temperature_logs
-          WHERE device_id = ${id}
-          ORDER BY created_at DESC
+        // ✅ беремо останню температуру
+        const latestTemp = await sql`
+          SELECT temp, updated_at
+          FROM sensor_data
+          WHERE device_id = ${String(id)}
+          ORDER BY updated_at DESC
           LIMIT 1
         `;
 
-        const row = latest.rows[0];
+        const tempRow = latestTemp.rows[0];
 
-        // min/max за 24 години
+        // ✅ rpm
+        const latestMotor = await sql`
+          SELECT rpm
+          FROM motor_live
+          WHERE device_id = ${String(id)}
+          LIMIT 1
+        `;
+
+        const rpm = Number(latestMotor.rows[0]?.rpm ?? 0);
+
+        // ✅ min/max за 24 години
         const stats = await sql`
           SELECT
             MIN(temp) as min,
             MAX(temp) as max
-          FROM temperature_logs
-          WHERE device_id = ${id}
-            AND created_at > NOW() - INTERVAL '24 hours'
+          FROM sensor_data
+          WHERE device_id = ${String(id)}
+            AND updated_at > NOW() - INTERVAL '24 HOURS'
         `;
 
         const stat = stats.rows[0];
 
-        // rpm з motor_live
-        let rpm = 0;
+        const updatedAt = tempRow?.updated_at ?? null;
 
-        try {
-          const motor = await sql`
-            SELECT rpm
-            FROM motor_live
-            WHERE device_id = ${String(id)}
-            LIMIT 1
-          `;
-
-          rpm = Number(motor.rows[0]?.rpm ?? 0);
-        } catch {
-          rpm = 0;
-        }
-
-        const updatedAt = row?.created_at ?? null;
-
-        const online = row
+        const online = updatedAt
           ? Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000
           : false;
 
         return {
           id,
-          temp: Number(row?.temp ?? 0),
+          temp: Number(tempRow?.temp ?? 0),
           updatedAt,
           min24: Number(stat?.min ?? 0),
           max24: Number(stat?.max ?? 0),
@@ -64,15 +58,13 @@ export async function GET() {
       })
     );
 
-    const onlineCount = sensors.filter((s) => s.online).length;
-
     return NextResponse.json({
       sensors,
-      onlineCount,
+      onlineCount: sensors.filter((s) => s.online).length,
       totalCount: sensorIds.length,
     });
   } catch (error) {
-    console.error("home-summary error:", error);
+    console.error("home-summary error", error);
 
     return NextResponse.json({
       sensors: [],
