@@ -72,6 +72,8 @@ export async function GET() {
           updatedAt &&
           Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000;
 
+        const safeRpm = online ? rpm : 0;
+
         return {
           id,
           temp,
@@ -79,7 +81,7 @@ export async function GET() {
           min24,
           max24,
           online: !!online,
-          rpm,
+          rpm: safeRpm,
         };
       })
     );
