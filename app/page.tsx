@@ -35,26 +35,6 @@ function formatTemp(value: number) {
   return `${value.toFixed(1)}°C`;
 }
 
-function MiniChart({ online }: { online: boolean }) {
-  return (
-    <div
-      style={{
-        height: 54,
-        borderRadius: 14,
-        background: "rgba(255,255,255,0.04)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: online ? "#7fe0ff" : "#ffb3b3",
-        fontSize: 13,
-        fontWeight: 700,
-      }}
-    >
-      24h
-    </div>
-  );
-}
-
 function SensorCard({ sensor }: { sensor: Sensor }) {
   const title = sensorTitles[sensor.id] ?? `Сенсор ${sensor.id}`;
   const offline = !sensor.online;
@@ -100,44 +80,33 @@ function SensorCard({ sensor }: { sensor: Sensor }) {
         </Link>
       </div>
 
-      <div
-        style={{
-          marginTop: 10,
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 14,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 14 }}>
-            Min {offline ? "0.0" : sensor.min24.toFixed(1)} • Max{" "}
-            {offline ? "0.0" : sensor.max24.toFixed(1)}
-          </div>
-
-          <Link
-            href={`/disconnects/${sensor.id}`}
-            style={{
-              display: "inline-block",
-              marginTop: 8,
-              padding: "10px 14px",
-              borderRadius: 12,
-              background: "rgba(87,198,255,0.18)",
-              color: "white",
-              textDecoration: "none",
-              fontWeight: 700,
-            }}
-          >
-            Відключення
-          </Link>
-
-          {offline && (
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-              Очікує сенсор
-            </div>
-          )}
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 14 }}>
+          Min {offline ? "0.0" : sensor.min24.toFixed(1)} • Max{" "}
+          {offline ? "0.0" : sensor.max24.toFixed(1)}
         </div>
 
-        <MiniChart online={!offline} />
+        <Link
+          href={`/disconnects/${sensor.id}`}
+          style={{
+            display: "inline-block",
+            marginTop: 8,
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: "rgba(87,198,255,0.18)",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: 700,
+          }}
+        >
+          Відключення
+        </Link>
+
+        {offline && (
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+            Очікує сенсор
+          </div>
+        )}
       </div>
     </div>
   );
@@ -178,8 +147,10 @@ export default function Page() {
     }
 
     const map = new Map(data.sensors.map((s) => [s.id, s]));
+
     return Array.from({ length: 8 }, (_, i) => {
       const id = i + 1;
+
       return (
         map.get(id) ?? {
           id,
