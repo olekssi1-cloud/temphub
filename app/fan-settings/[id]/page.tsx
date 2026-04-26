@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Row = {
   temp: string;
@@ -11,19 +11,46 @@ type Row = {
 export default function FanSettingsPage() {
   const { id } = useParams();
 
-  // ===== START SETTINGS =====
   const [startupSeconds, setStartupSeconds] = useState("20");
   const [startupPercent, setStartupPercent] = useState("50");
 
-  // ===== 50 ROWS =====
   const [rows, setRows] = useState<Row[]>(
-    Array.from({ length: 50 }, () => ({
-      temp: "",
-      percent: "",
-    }))
+    Array.from({ length: 50 }, () => ({ temp: "", percent: "" }))
   );
 
-  // ===== HANDLERS =====
+  const [loading, setLoading] = useState(true);
+
+  // ================= LOAD FROM API =================
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/fan-profiles?device_id=${id}`);
+        const data = await res.json();
+
+        if (data.exists) {
+          setStartupSeconds(String(data.startup_seconds));
+          setStartupPercent(String(data.startup_percent));
+
+          const newRows = Array.from({ length: 50 }, (_, i) => {
+            const r = data.rules[i];
+            return r
+              ? { temp: String(r.temp), percent: String(r.percent) }
+              : { temp: "", percent: "" };
+          });
+
+          setRows(newRows);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  }, [id]);
+
+  // ================= UPDATE =================
   function updateRow(index: number, field: "temp" | "percent", value: string) {
     const newRows = [...rows];
     newRows[index][field] = value;
@@ -51,152 +78,130 @@ export default function FanSettingsPage() {
     setRows(newRows);
   }
 
-  function save() {
+  // ================= VALIDATION =================
+  function validate(validRows: Row[]) {
+    if (validRows.length === 0) {
+      alert("Мінімум один рядок");
+      return false;
+    }
+
+    let lastTemp = -999;
+
+    for (const r of validRows) {
+      const temp = Number(r.temp);
+      const percent = Number(r.percent);
+
+      if (isNaN(temp)) {
+        alert("Температура має бути числом");
+        return false;
+      }
+
+      if (temp <= lastTemp) {
+        alert("Температури мають зростати без повторів");
+        return false;
+      }
+
+      if (percent < 15 || percent > 100) {
+        alert("Швидкість 15–100%");
+        return false;
+      }
+
+      lastTemp = temp;
+    }
+
+    const sec = Number(startupSeconds);
+    const perc = Number(startupPercent);
+
+    if (sec < 1 || sec > 300) {
+      alert("Старт: 1–300 сек");
+      return false;
+    }
+
+    if (perc < 15 || perc > 100) {
+      alert("Старт %: 15–100");
+      return false;
+    }
+
+    return true;
+  }
+
+  // ================= SAVE =================
+  async function save() {
     const validRows = rows.filter(
       (r) => r.temp !== "" && r.percent !== ""
     );
 
-    if (validRows.length === 0) {
-      alert("Потрібно заповнити хоча б один рядок");
-      return;
-    }
+    if (!validate(validRows)) return;
 
-    alert("Налаштування збережено (поки без БД)");
-    console.log({
-      sensorId: id,
-      startupSeconds,
-      startupPercent,
-      rules: validRows,
-    });
+    const payload = {
+      device_id: Number(id),
+      profile_type: "default",
+      startup_seconds: Number(startupSeconds),
+      startup_percent: Number(startupPercent),
+      rules: validRows.map((r) => ({
+        temp: Number(r.temp),
+        percent: Number(r.percent),
+      })),
+    };
+
+    try {
+      const res = await fetch("/api/fan-profiles", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        alert("Збережено ✅");
+      } else {
+        alert("Помилка ❌");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Помилка сервера");
+    }
   }
 
-  // ===== UI =====
+  if (loading) return <div style={{ padding: 20 }}>Завантаження...</div>;
+
+  // ================= UI =================
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#0c1630",
-        color: "white",
-        padding: 16,
-      }}
-    >
+    <main style={{ minHeight: "100vh", background: "#0c1630", color: "white", padding: 16 }}>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <h1 style={{ fontSize: 28, marginBottom: 20 }}>
           Налаштування вентилятора (сенсор {id})
         </h1>
 
-        {/* START SETTINGS */}
-        <div
-          style={{
-            background: "#10214f",
-            padding: 16,
-            borderRadius: 16,
-            marginBottom: 20,
-          }}
-        >
+        {/* START */}
+        <div style={{ background: "#10214f", padding: 16, borderRadius: 16, marginBottom: 20 }}>
           <h2>Перший запуск</h2>
 
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-            <input
-              value={startupSeconds}
-              onChange={(e) => setStartupSeconds(e.target.value)}
-              placeholder="Секунди"
-              style={{ padding: 10, borderRadius: 10, width: 120 }}
-            />
-
-            <input
-              value={startupPercent}
-              onChange={(e) => setStartupPercent(e.target.value)}
-              placeholder="%"
-              style={{ padding: 10, borderRadius: 10, width: 100 }}
-            />
+            <input value={startupSeconds} onChange={(e) => setStartupSeconds(e.target.value)} />
+            <input value={startupPercent} onChange={(e) => setStartupPercent(e.target.value)} />
           </div>
         </div>
 
         {/* TABLE */}
-        <div
-          style={{
-            background: "#10214f",
-            padding: 16,
-            borderRadius: 16,
-            marginBottom: 20,
-          }}
-        >
-          <h2>Правила (температура → %)</h2>
+        <div style={{ background: "#10214f", padding: 16, borderRadius: 16, marginBottom: 20 }}>
+          <h2>Правила</h2>
 
-          <div style={{ marginTop: 10 }}>
-            {rows.map((row, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                  marginBottom: 6,
-                }}
-              >
-                <input
-                  value={row.temp}
-                  onChange={(e) =>
-                    updateRow(i, "temp", e.target.value)
-                  }
-                  placeholder="Температура"
-                  style={{ padding: 8, borderRadius: 8 }}
-                />
-
-                <input
-                  value={row.percent}
-                  onChange={(e) =>
-                    updateRow(i, "percent", e.target.value)
-                  }
-                  placeholder="% вентилятора"
-                  style={{ padding: 8, borderRadius: 8 }}
-                />
-              </div>
-            ))}
-          </div>
+          {rows.map((row, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <input value={row.temp} onChange={(e) => updateRow(i, "temp", e.target.value)} />
+              <input value={row.percent} onChange={(e) => updateRow(i, "percent", e.target.value)} />
+            </div>
+          ))}
         </div>
 
-        {/* BUTTONS */}
         <div style={{ display: "flex", gap: 10 }}>
-          <button
-            onClick={clearAll}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              background: "#aa2e2e",
-              color: "white",
-              fontWeight: 700,
-            }}
-          >
-            Очистити
-          </button>
-
-          <button
-            onClick={setDefault}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              background: "#2e7aaa",
-              color: "white",
-              fontWeight: 700,
-            }}
-          >
-            Заводські
-          </button>
-
-          <button
-            onClick={save}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              background: "#2eaa5a",
-              color: "white",
-              fontWeight: 700,
-            }}
-          >
-            Зберегти
-          </button>
+          <button onClick={clearAll}>Очистити</button>
+          <button onClick={setDefault}>Заводські</button>
+          <button onClick={save}>Зберегти</button>
         </div>
       </div>
     </main>
