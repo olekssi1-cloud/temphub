@@ -15,9 +15,12 @@ export default function FanSettingsPage() {
 
   const [startupSeconds, setStartupSeconds] = useState("20");
   const [startupPercent, setStartupPercent] = useState("50");
+  const [previewTemp, setPreviewTemp] = useState("23");
+
   const [rows, setRows] = useState<Row[]>(
     Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" }))
   );
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -27,6 +30,7 @@ export default function FanSettingsPage() {
         const res = await fetch(`/api/fan-profiles?device_id=${id}`, {
           cache: "no-store",
         });
+
         const data = await res.json();
 
         setStartupSeconds(String(data.startup_seconds ?? 20));
@@ -37,6 +41,7 @@ export default function FanSettingsPage() {
         setRows(
           Array.from({ length: EMPTY_ROWS }, (_, i) => {
             const rule = apiRules[i];
+
             return rule
               ? {
                   temp: String(rule.temp),
@@ -63,7 +68,12 @@ export default function FanSettingsPage() {
   }
 
   function clearAll() {
-    setRows(Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" })));
+    setRows(
+      Array.from({ length: EMPTY_ROWS }, () => ({
+        temp: "",
+        percent: "",
+      }))
+    );
   }
 
   function setDefault() {
@@ -91,7 +101,34 @@ export default function FanSettingsPage() {
     );
   }
 
-  function validate(validRows: Row[]) {
+  function getPreviewRule() {
+    const temp = Number(previewTemp);
+
+    if (Number.isNaN(temp)) return null;
+
+    const validRules = rows
+      .filter((r) => r.temp.trim() !== "" && r.percent.trim() !== "")
+      .map((r) => ({
+        temp: Number(r.temp),
+        percent: Number(r.percent),
+      }))
+      .filter((r) => !Number.isNaN(r.temp) && !Number.isNaN(r.percent))
+      .sort((a, b) => a.temp - b.temp);
+
+    if (validRules.length === 0) return null;
+
+    let active = validRules[0];
+
+    for (const rule of validRules) {
+      if (temp >= rule.temp) {
+        active = rule;
+      }
+    }
+
+    return active;
+  }
+
+  function validate() {
     const sec = Number(startupSeconds);
     const startup = Number(startupPercent);
 
@@ -101,29 +138,26 @@ export default function FanSettingsPage() {
     }
 
     if (!Number.isInteger(startup) || startup < 15 || startup > 100) {
-      alert("Відсоток першого запуску має бути від 15 до 100%");
+      alert("Потужність першого запуску має бути від 15 до 100%");
       return false;
     }
 
-    if (validRows.length < 1) {
-      alert("Потрібно заповнити хоча б одне правило");
-      return false;
-    }
-
+    let filledCount = 0;
     let lastTemp: number | null = null;
     const usedTemps = new Set<number>();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const tempFilled = row.temp.trim() !== "";
-      const percentFilled = row.percent.trim() !== "";
 
-      if (tempFilled !== percentFilled) {
+      const hasTemp = row.temp.trim() !== "";
+      const hasPercent = row.percent.trim() !== "";
+
+      if (!hasTemp && !hasPercent) continue;
+
+      if (hasTemp !== hasPercent) {
         alert(`Рядок ${i + 1}: заповни і температуру, і відсоток`);
         return false;
       }
-
-      if (!tempFilled && !percentFilled) continue;
 
       const temp = Number(row.temp);
       const percent = Number(row.percent);
@@ -134,7 +168,7 @@ export default function FanSettingsPage() {
       }
 
       if (!Number.isInteger(percent) || percent < 15 || percent > 100) {
-        alert(`Рядок ${i + 1}: відсоток має бути від 15 до 100`);
+        alert(`Рядок ${i + 1}: вентилятор має бути від 15 до 100%`);
         return false;
       }
 
@@ -150,17 +184,26 @@ export default function FanSettingsPage() {
 
       usedTemps.add(temp);
       lastTemp = temp;
+      filledCount++;
+    }
+
+    if (filledCount < 1) {
+      alert("Потрібно заповнити хоча б одне правило");
+      return false;
     }
 
     return true;
   }
 
   async function save() {
-    const validRows = rows.filter(
-      (r) => r.temp.trim() !== "" && r.percent.trim() !== ""
-    );
+    if (!validate()) return;
 
-    if (!validate(validRows)) return;
+    const validRows = rows
+      .filter((r) => r.temp.trim() !== "" && r.percent.trim() !== "")
+      .map((r) => ({
+        temp: Number(r.temp),
+        percent: Number(r.percent),
+      }));
 
     setSaving(true);
 
@@ -174,10 +217,7 @@ export default function FanSettingsPage() {
           device_id: Number(id),
           startup_seconds: Number(startupSeconds),
           startup_percent: Number(startupPercent),
-          rules: validRows.map((r) => ({
-            temp: Number(r.temp),
-            percent: Number(r.percent),
-          })),
+          rules: validRows,
         }),
       });
 
@@ -197,23 +237,61 @@ export default function FanSettingsPage() {
     }
   }
 
+  const previewRule = getPreviewRule();
+
   if (loading) {
     return (
-      <main style={{ minHeight: "100vh", background: "#0c1630", color: "white", padding: 20 }}>
-        Завантаження...
+      <main style={pageStyle}>
+        <div style={{ maxWidth: 980, margin: "0 auto" }}>Завантаження...</div>
       </main>
     );
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: "#0c1630", color: "white", padding: 16 }}>
+    <main style={pageStyle}>
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
         <h1 style={{ fontSize: 32, marginBottom: 20 }}>
           Налаштування вентилятора — комп’ютер {id}
         </h1>
 
+        <section style={infoStyle}>
+          <h2 style={titleStyle}>Як працює керування</h2>
+
+          <p>
+            Комп’ютер читає температуру і сам виставляє потужність вентилятора.
+            Кожен рядок означає:
+          </p>
+
+          <div style={formulaStyle}>
+            якщо температура ≥ заданого значення → встановити цей % вентилятора
+          </div>
+
+          <p>
+            Система бере останнє правило, яке підходить по температурі.
+            Наприклад:
+          </p>
+
+          <div style={exampleStyle}>
+            ≥ 20°C → 30%
+            <br />
+            ≥ 24°C → 55%
+            <br />
+            ≥ 28°C → 80%
+          </div>
+
+          <p>
+            Якщо температура буде 26°C — спрацює правило ≥ 24°C, тобто
+            вентилятор буде працювати на 55%.
+          </p>
+        </section>
+
         <section style={cardStyle}>
           <h2 style={titleStyle}>Перший запуск</h2>
+
+          <p style={{ opacity: 0.85 }}>
+            Після увімкнення вентилятор спочатку працює на заданій потужності,
+            щоб гарантовано стартувати, а потім переходить на правила з таблиці.
+          </p>
 
           <div style={startGridStyle}>
             <label>
@@ -238,12 +316,48 @@ export default function FanSettingsPage() {
           </div>
         </section>
 
+        <section style={infoStyle}>
+          <h2 style={titleStyle}>Перевірка правила</h2>
+
+          <p>
+            Введи температуру, і сайт покаже, яке правило спрацює.
+          </p>
+
+          <div style={{ maxWidth: 220 }}>
+            <div style={labelStyle}>Температура для перевірки, °C</div>
+            <input
+              value={previewTemp}
+              onChange={(e) => setPreviewTemp(e.target.value)}
+              style={inputStyle}
+              inputMode="decimal"
+              placeholder="Напр. 23"
+            />
+          </div>
+
+          <div style={previewBoxStyle}>
+            {previewRule ? (
+              <>
+                При температурі <b>{previewTemp}°C</b> спрацює правило{" "}
+                <b>≥ {previewRule.temp}°C</b>, вентилятор буде працювати на{" "}
+                <b>{previewRule.percent}%</b>.
+              </>
+            ) : (
+              <>Заповни правила, щоб побачити результат.</>
+            )}
+          </div>
+        </section>
+
         <section style={cardStyle}>
           <h2 style={titleStyle}>Правила керування температурою</h2>
 
+          <p style={{ opacity: 0.85 }}>
+            Заповнюй рядки зверху вниз. Температури мають іти по зростанню.
+            Порожні рядки ігноруються. Максимум — 50 правил.
+          </p>
+
           <div style={tableHeaderStyle}>
             <div>№</div>
-            <div>Температура, °C</div>
+            <div>Температура ≥, °C</div>
             <div>Вентилятор, %</div>
           </div>
 
@@ -270,12 +384,18 @@ export default function FanSettingsPage() {
           ))}
         </section>
 
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingBottom: 40 }}>
-          <button onClick={clearAll} style={{ ...buttonStyle, background: "#a83232" }}>
+        <div style={buttonsRowStyle}>
+          <button
+            onClick={clearAll}
+            style={{ ...buttonStyle, background: "#a83232" }}
+          >
             Очистити
           </button>
 
-          <button onClick={setDefault} style={{ ...buttonStyle, background: "#2563eb" }}>
+          <button
+            onClick={setDefault}
+            style={{ ...buttonStyle, background: "#2563eb" }}
+          >
             Заводські налаштування
           </button>
 
@@ -295,6 +415,13 @@ export default function FanSettingsPage() {
   );
 }
 
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0c1630",
+  color: "white",
+  padding: 16,
+};
+
 const cardStyle: React.CSSProperties = {
   background: "#10214f",
   padding: 18,
@@ -302,10 +429,44 @@ const cardStyle: React.CSSProperties = {
   marginBottom: 20,
 };
 
+const infoStyle: React.CSSProperties = {
+  background: "#12306b",
+  padding: 18,
+  borderRadius: 20,
+  marginBottom: 20,
+  lineHeight: 1.5,
+};
+
 const titleStyle: React.CSSProperties = {
   marginTop: 0,
   marginBottom: 16,
   fontSize: 22,
+};
+
+const formulaStyle: React.CSSProperties = {
+  margin: "12px 0",
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.1)",
+  fontWeight: 800,
+};
+
+const exampleStyle: React.CSSProperties = {
+  marginTop: 12,
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.08)",
+  fontWeight: 700,
+};
+
+const previewBoxStyle: React.CSSProperties = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(22,163,74,0.18)",
+  border: "1px solid rgba(74,222,128,0.35)",
+  fontSize: 16,
 };
 
 const labelStyle: React.CSSProperties = {
@@ -347,6 +508,13 @@ const inputStyle: React.CSSProperties = {
   color: "white",
   fontSize: 16,
   outline: "none",
+};
+
+const buttonsRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
+  paddingBottom: 40,
 };
 
 const buttonStyle: React.CSSProperties = {
