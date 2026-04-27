@@ -68,12 +68,7 @@ export default function FanSettingsPage() {
   }
 
   function clearAll() {
-    setRows(
-      Array.from({ length: EMPTY_ROWS }, () => ({
-        temp: "",
-        percent: "",
-      }))
-    );
+    setRows(Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" })));
   }
 
   function setDefault() {
@@ -103,7 +98,6 @@ export default function FanSettingsPage() {
 
   function getPreviewRule() {
     const temp = Number(previewTemp);
-
     if (Number.isNaN(temp)) return null;
 
     const validRules = rows
@@ -286,11 +280,11 @@ export default function FanSettingsPage() {
         </section>
 
         <section style={cardStyle}>
-          <h2 style={titleStyle}>Перший запуск</h2>
+          <h2 style={titleStyle}>Перший запуск при зміні правил</h2>
 
           <p style={{ opacity: 0.85 }}>
-            Після увімкнення вентилятор спочатку працює на заданій потужності,
-            щоб гарантовано стартувати, а потім переходить на правила з таблиці.
+            Цей запуск використовується тоді, коли ти натискаєш “Зберегти”
+            і ESP32 отримує нові правила з сайту.
           </p>
 
           <div style={startGridStyle}>
@@ -319,9 +313,7 @@ export default function FanSettingsPage() {
         <section style={infoStyle}>
           <h2 style={titleStyle}>Перевірка правила</h2>
 
-          <p>
-            Введи температуру, і сайт покаже, яке правило спрацює.
-          </p>
+          <p>Введи температуру, і сайт покаже, яке правило спрацює.</p>
 
           <div style={{ maxWidth: 220 }}>
             <div style={labelStyle}>Температура для перевірки, °C</div>
