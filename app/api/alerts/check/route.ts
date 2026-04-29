@@ -25,10 +25,12 @@ function buildQuery(params: Record<string, string>) {
 function generateSignature(method: string, paramsString: string) {
   const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
 
-  return crypto
+  const hmacHex = crypto
     .createHmac("sha1", ZADARMA_SECRET)
     .update(method + paramsString + md5)
-    .digest("base64");
+    .digest("hex");
+
+  return Buffer.from(hmacHex).toString("base64");
 }
 
 // ================= ZADARMA CALL =================
