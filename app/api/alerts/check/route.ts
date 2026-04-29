@@ -10,6 +10,8 @@ const pool = new Pool({
 // ================= ZADARMA =================
 const ZADARMA_KEY = "29405d16f36cf48cc953";
 const ZADARMA_SECRET = "0a13f2fb618c6f6b3fb9";
+
+const SIP_NUMBER = "295668";
 const PHONE = "+380668954751";
 
 // ================= HELPERS =================
@@ -29,13 +31,14 @@ function generateSignature(method: string, paramsString: string) {
     .digest("base64");
 }
 
-// ================= CALL =================
+// ================= ZADARMA CALL =================
 async function zadarmaCall() {
   const method = "/v1/request/callback/";
 
   const paramsString = buildQuery({
-    from: PHONE,
+    from: SIP_NUMBER,
     to: PHONE,
+    sip: SIP_NUMBER,
   });
 
   const signature = generateSignature(method, paramsString);
@@ -47,7 +50,13 @@ async function zadarmaCall() {
     },
   });
 
-  return res.json();
+  const text = await res.text();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
 }
 
 // ================= MAIN =================
@@ -62,7 +71,10 @@ export async function GET() {
     `);
 
     if (result.rows.length === 0) {
-      return NextResponse.json({ ok: false, error: "No data" });
+      return NextResponse.json({
+        ok: false,
+        error: "No data",
+      });
     }
 
     const lastTime = new Date(result.rows[0].created_at);
@@ -86,7 +98,6 @@ export async function GET() {
       alert: false,
       diffMinutes,
     });
-
   } catch (e) {
     return NextResponse.json({
       ok: false,
