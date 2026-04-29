@@ -40,7 +40,6 @@ async function zadarmaCall() {
   const paramsString = buildQuery({
     from: SIP_NUMBER,
     to: PHONE,
-    sip: SIP_NUMBER,
   });
 
   const signature = generateSignature(method, paramsString);
