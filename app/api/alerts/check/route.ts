@@ -4,23 +4,36 @@ import crypto from "crypto";
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
+const SIP = "295668";
+const PHONE = "+380668954751";
+
+function buildQuery(params: Record<string, string>) {
+  return Object.keys(params)
+    .sort()
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+    .join("&");
+}
+
 function generateSignature(method: string, paramsString: string) {
   const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
 
-  const hmacHex = crypto
+  return crypto
     .createHmac("sha1", ZADARMA_SECRET)
     .update(method + paramsString + md5)
-    .digest("hex");
-
-  return Buffer.from(hmacHex).toString("base64");
+    .digest("base64");
 }
 
-export async function GET() {
-  const method = "/v1/info/balance/";
-  const paramsString = "";
+async function zadarmaCall() {
+  const method = "/v1/request/call/";
+
+  const paramsString = buildQuery({
+    sip: SIP,
+    number: PHONE,
+  });
+
   const signature = generateSignature(method, paramsString);
 
-  const res = await fetch(`https://api.zadarma.com${method}`, {
+  const res = await fetch(`https://api.zadarma.com${method}?${paramsString}`, {
     method: "GET",
     headers: {
       Authorization: `${ZADARMA_KEY}:${signature}`,
@@ -29,8 +42,18 @@ export async function GET() {
 
   const text = await res.text();
 
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+export async function GET() {
+  const result = await zadarmaCall();
+
   return NextResponse.json({
-    status: res.status,
-    raw: text,
+    ok: true,
+    result,
   });
 }
