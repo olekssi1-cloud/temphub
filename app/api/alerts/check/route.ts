@@ -4,7 +4,7 @@ import crypto from "crypto";
 const ZADARMA_KEY = "29405d16f36cf48cc953";
 const ZADARMA_SECRET = "0a13f2fb618c6f6b3fb9";
 
-const FROM = "+380914810472";
+const SIP_NUMBER = "295668";
 const TO = "+380668954751";
 
 function buildQuery(params: Record<string, string>) {
@@ -29,7 +29,7 @@ async function zadarmaCall() {
   const method = "/v1/request/callback/";
 
   const paramsString = buildQuery({
-    from: FROM,
+    from: SIP_NUMBER,
     to: TO,
   });
 
@@ -57,6 +57,8 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     test: true,
+    from: SIP_NUMBER,
+    to: TO,
     callResult,
   });
 }
