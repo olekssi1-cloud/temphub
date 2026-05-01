@@ -5,9 +5,9 @@ import crypto from "crypto";
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
-// беремо з env
-const SIP = process.env.295668!;
-const PHONE = process.env.+380668954751!;
+// ================== НОМЕРИ (в коді) ==================
+const SIP = "295668";
+const PHONE = "+380668954751";
 
 // ================== HELPERS ==================
 function buildQuery(params: Record<string, string>) {
@@ -57,10 +57,17 @@ async function zadarmaCall() {
 
 // ================== API ==================
 export async function GET() {
-  const callResult = await zadarmaCall();
+  try {
+    const callResult = await zadarmaCall();
 
-  return NextResponse.json({
-    ok: true,
-    callResult,
-  });
+    return NextResponse.json({
+      ok: true,
+      callResult,
+    });
+  } catch (error) {
+    return NextResponse.json({
+      ok: false,
+      error: String(error),
+    });
+  }
 }
