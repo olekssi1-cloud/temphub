@@ -4,7 +4,10 @@ import crypto from "crypto";
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
-const FROM = "295668";
+// твій куплений номер
+const FROM = "380914810472";
+
+// твій особистий
 const TO = "380668954751";
 
 function buildQuery(params: Record<string, string>) {
@@ -31,7 +34,6 @@ async function zadarmaCall() {
   const paramsString = buildQuery({
     from: FROM,
     to: TO,
-    predicted: "1",
   });
 
   const signature = generateSignature(method, paramsString);
@@ -57,7 +59,6 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    message: "Call request sent",
     result,
   });
 }
