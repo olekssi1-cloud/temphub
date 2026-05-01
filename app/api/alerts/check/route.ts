@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
-const ZADARMA_KEY = "29405d16f36cf48cc953";
-const ZADARMA_SECRET = "0a13f2fb618c6f6b3fb9";
+// ❗ ВСТАВ СВОЇ КЛЮЧІ ТУТ (з Zadarma)
+const ZADARMA_KEY = "67270010bcdda0322e85";
+const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
-const SIP_NUMBER = "295668"; // твій SIP
-const TO = "+380668954751"; // твій мобільний
-const CALLER_ID = "+380914810472"; // НОВИЙ номер (інший!)
+const SIP_NUMBER = "295668";
+const TO = "+380668954751";
+const CALLER_ID = "+380914810472";
 
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
@@ -18,12 +19,12 @@ function buildQuery(params: Record<string, string>) {
 function generateSignature(method: string, paramsString: string) {
   const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
 
-  const hmacHex = crypto
+  const hmac = crypto
     .createHmac("sha1", ZADARMA_SECRET)
     .update(method + paramsString + md5)
-    .digest("hex");
+    .digest("base64");
 
-  return Buffer.from(hmacHex).toString("base64");
+  return hmac;
 }
 
 async function zadarmaCall() {
@@ -32,7 +33,7 @@ async function zadarmaCall() {
   const paramsString = buildQuery({
     from: SIP_NUMBER,
     to: TO,
-    caller_id: CALLER_ID, // 🔥 ВАЖЛИВО
+    caller_id: CALLER_ID,
   });
 
   const signature = generateSignature(method, paramsString);
@@ -44,20 +45,14 @@ async function zadarmaCall() {
     },
   });
 
-  const text = await res.text();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { raw: text };
-  }
+  return res.json();
 }
 
 export async function GET() {
-  const callResult = await zadarmaCall();
+  const result = await zadarmaCall();
 
   return NextResponse.json({
     ok: true,
-    callResult,
+    result,
   });
 }
