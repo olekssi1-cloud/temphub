@@ -4,9 +4,9 @@ import crypto from "crypto";
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
-const FROM = "295668";
+const FROM = "100";
 const TO = "380668954751";
-const SIP = "295668";
+const SIP = "100";
 
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
