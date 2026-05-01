@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
-// ❗ ВСТАВ СВОЇ КЛЮЧІ ТУТ (з Zadarma)
+// ================== ТВОЇ ДАНІ ==================
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
-const SIP_NUMBER = "295668";
-const TO = "+380668954751";
-const CALLER_ID = "+380914810472";
+// твій SIP (з кабінету Zadarma)
+const SIP = "295668";
 
+// номер, куди дзвонити
+const PHONE = "+380668954751";
+
+// ================== HELPERS ==================
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
     .sort()
@@ -27,13 +30,13 @@ function generateSignature(method: string, paramsString: string) {
   return hmac;
 }
 
+// ================== CALL ==================
 async function zadarmaCall() {
   const method = "/v1/request/callback/";
 
   const paramsString = buildQuery({
-    from: SIP_NUMBER,
-    to: TO,
-    caller_id: CALLER_ID,
+    from: SIP,       // SIP !!!
+    to: PHONE,       // твій телефон
   });
 
   const signature = generateSignature(method, paramsString);
@@ -45,14 +48,21 @@ async function zadarmaCall() {
     },
   });
 
-  return res.json();
+  const text = await res.text();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
 }
 
+// ================== API ==================
 export async function GET() {
-  const result = await zadarmaCall();
+  const callResult = await zadarmaCall();
 
   return NextResponse.json({
     ok: true,
-    result,
+    callResult,
   });
 }
