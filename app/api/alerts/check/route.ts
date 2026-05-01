@@ -1,59 +1,54 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
-const ZADARMA_KEY = "67270010bcdda0322e85";
-const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
+const KEY = "67270010bcdda0322e85";
+const SECRET = "3f22e0545422f51aa7e9";
 
-const SIP = "295668";
-const PHONE = "+380668954751";
+const FROM = "380914810472";   // твій віртуальний
+const TO = "380668954751";     // твій реальний
 
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
     .sort()
-    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+    .map((key) => key + "=" + encodeURIComponent(params[key]))
     .join("&");
 }
 
-function generateSignature(method: string, paramsString: string) {
-  const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
+function sign(method: string, params: string) {
+  const md5 = crypto.createHash("md5").update(params).digest("hex");
 
-  return crypto
-    .createHmac("sha1", ZADARMA_SECRET)
-    .update(method + paramsString + md5)
+  const hmac = crypto
+    .createHmac("sha1", SECRET)
+    .update(method + params + md5)
     .digest("base64");
+
+  return hmac;
 }
 
-async function zadarmaCall() {
-  const method = "/v1/request/call/";
+async function call() {
+  const method = "/v1/request/callback/";
 
-  const paramsString = buildQuery({
-    sip: SIP,
-    number: PHONE,
+  const params = buildQuery({
+    from: FROM,
+    to: TO,
   });
 
-  const signature = generateSignature(method, paramsString);
+  const signature = sign(method, params);
 
-  const res = await fetch(`https://api.zadarma.com${method}?${paramsString}`, {
-    method: "GET",
-    headers: {
-      Authorization: `${ZADARMA_KEY}:${signature}`,
-    },
-  });
+  const res = await fetch(
+    `https://api.zadarma.com${method}?${params}`,
+    {
+      headers: {
+        Authorization: `${KEY}:${signature}`,
+      },
+    }
+  );
 
-  const text = await res.text();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { raw: text };
-  }
+  return res.json();
 }
 
 export async function GET() {
-  const result = await zadarmaCall();
+  const result = await call();
 
-  return NextResponse.json({
-    ok: true,
-    result,
-  });
+  return NextResponse.json(result);
 }
