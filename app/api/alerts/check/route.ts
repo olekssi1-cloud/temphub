@@ -31,6 +31,7 @@ async function zadarmaCall() {
   const paramsString = buildQuery({
     from: FROM,
     to: TO,
+    predicted: "1",
   });
 
   const signature = generateSignature(method, paramsString);
@@ -56,8 +57,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    from: FROM,
-    to: TO,
+    message: "Call request sent",
     result,
   });
 }
