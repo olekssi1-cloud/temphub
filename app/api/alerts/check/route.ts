@@ -11,8 +11,8 @@ const pool = new Pool({
 const ZADARMA_KEY = "29405d16f36cf48cc953";
 const ZADARMA_SECRET = "0a13f2fb618c6f6b3fb9";
 
-const SIP_NUMBER = "295668";
-const PHONE = "+380668954751";
+const FROM = "+380914810472";   // Твій новий номер Zadarma ✅
+const TO = "+380668954751";     // Твій телефон ✅
 
 // ================= HELPERS =================
 function buildQuery(params: Record<string, string>) {
@@ -25,12 +25,10 @@ function buildQuery(params: Record<string, string>) {
 function generateSignature(method: string, paramsString: string) {
   const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
 
-  const hmacHex = crypto
+  return crypto
     .createHmac("sha1", ZADARMA_SECRET)
     .update(method + paramsString + md5)
-    .digest("hex");
-
-  return Buffer.from(hmacHex).toString("base64");
+    .digest("base64");
 }
 
 // ================= ZADARMA CALL =================
@@ -38,8 +36,8 @@ async function zadarmaCall() {
   const method = "/v1/request/callback/";
 
   const paramsString = buildQuery({
-    from: SIP_NUMBER,
-    to: PHONE,
+    from: FROM,
+    to: TO,
   });
 
   const signature = generateSignature(method, paramsString);
