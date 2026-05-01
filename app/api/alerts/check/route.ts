@@ -4,8 +4,9 @@ import crypto from "crypto";
 const ZADARMA_KEY = "29405d16f36cf48cc953";
 const ZADARMA_SECRET = "0a13f2fb618c6f6b3fb9";
 
-const SIP_NUMBER = "295668";
-const TO = "+380668954751";
+const SIP_NUMBER = "295668"; // твій SIP
+const TO = "+380668954751"; // твій мобільний
+const CALLER_ID = "+380914810472"; // НОВИЙ номер (інший!)
 
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
@@ -31,6 +32,7 @@ async function zadarmaCall() {
   const paramsString = buildQuery({
     from: SIP_NUMBER,
     to: TO,
+    caller_id: CALLER_ID, // 🔥 ВАЖЛИВО
   });
 
   const signature = generateSignature(method, paramsString);
@@ -56,9 +58,6 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    test: true,
-    from: SIP_NUMBER,
-    to: TO,
     callResult,
   });
 }
