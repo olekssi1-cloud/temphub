@@ -4,7 +4,7 @@ import crypto from "crypto";
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
-const FROM = "380914810472";
+const FROM = "295668";
 const TO = "380668954751";
 const SIP = "295668";
 
