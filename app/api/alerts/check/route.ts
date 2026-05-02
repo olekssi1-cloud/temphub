@@ -5,8 +5,12 @@ const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
 const FROM = "100";
-const TO = "380668954751";
 const SIP = "100";
+
+const PHONES = [
+  "380668954751",
+  "380668834130", // другий номер встав сюди
+];
 
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
@@ -26,12 +30,12 @@ function generateSignature(method: string, paramsString: string) {
   return Buffer.from(hmacHex).toString("base64");
 }
 
-async function zadarmaCall() {
+async function zadarmaCall(to: string) {
   const method = "/v1/request/callback/";
 
   const paramsString = buildQuery({
     from: FROM,
-    to: TO,
+    to,
     sip: SIP,
     predicted: "1",
   });
@@ -55,14 +59,21 @@ async function zadarmaCall() {
 }
 
 export async function GET() {
-  const result = await zadarmaCall();
+  const results = [];
+
+  for (const phone of PHONES) {
+    const result = await zadarmaCall(phone);
+    results.push({
+      phone,
+      result,
+    });
+  }
 
   return NextResponse.json({
     ok: true,
     from: FROM,
-    to: TO,
     sip: SIP,
     predicted: "1",
-    result,
+    results,
   });
 }
