@@ -135,6 +135,23 @@ export default function HomePage() {
                   >
                     Вентилятор
                   </Link>
+
+                  <Link
+                    href={`/chart/${sensor.id}`}
+                    style={{
+                      display: "inline-block",
+                      marginTop: 8,
+                      marginLeft: 8,
+                      padding: "10px 14px",
+                      borderRadius: 12,
+                      background: "rgba(125,211,252,0.22)",
+                      color: "white",
+                      textDecoration: "none",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Графік
+                  </Link>
                 </div>
               </div>
             ))}
