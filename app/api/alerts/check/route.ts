@@ -2,28 +2,27 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { Pool } from "pg";
 
-// ================= DB =================
 const pool = new Pool({
-  connectionString: "postgresql://neondb_owner:npg_hdcpZf1xmuQ0@ep-delicate-pond-alak8lb8-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+  connectionString: process.env.DATABASE_URL!,
 });
 
-// ================= ZADARMA =================
-const ZADARMA_KEY = "67270010bcdda0322e85";
-const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
+const ZADARMA_KEY = process.env.ZADARMA_KEY!;
+const ZADARMA_SECRET = process.env.ZADARMA_SECRET!;
 
 const FROM = "100";
 const SIP = "100";
 
 const PHONES = [
   "380668954751",
-  "380668834130", // другий номер, якщо треба
+  "380668834130",
+  "380662765486", // третій номер сюди, без +
 ];
 
-// ================= SETTINGS =================
 const DEVICE_ID = "1";
 const OFFLINE_AFTER_MINUTES = 5;
 
-// ================= HELPERS =================
+const ALERT_TEXT = "У зеленому куті відсутнє світло або інтернет.";
+
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
     .sort()
@@ -70,10 +69,9 @@ async function zadarmaCall(to: string) {
   }
 }
 
-// ================= MAIN =================
 export async function GET() {
   try {
-    const result = await pool.query(
+    const tempResult = await pool.query(
       `
       SELECT created_at
       FROM temperature_logs
@@ -84,24 +82,65 @@ export async function GET() {
       [DEVICE_ID]
     );
 
-    if (result.rows.length === 0) {
+    if (tempResult.rows.length === 0) {
       return NextResponse.json({
         ok: false,
         alert: false,
-        error: "No data for sensor 1",
+        error: "No data from sensor",
       });
     }
 
-    const lastTime = new Date(result.rows[0].created_at);
+    const lastTime = new Date(tempResult.rows[0].created_at);
     const now = new Date();
-
     const diffMinutes = (now.getTime() - lastTime.getTime()) / 1000 / 60;
 
+    await pool.query(
+      `
+      INSERT INTO alert_state (device_id, alert_sent)
+      VALUES ($1, false)
+      ON CONFLICT (device_id) DO NOTHING
+      `,
+      [DEVICE_ID]
+    );
+
+    const stateResult = await pool.query(
+      `
+      SELECT alert_sent
+      FROM alert_state
+      WHERE device_id = $1
+      `,
+      [DEVICE_ID]
+    );
+
+    const alertSent = stateResult.rows[0]?.alert_sent === true;
+
     if (diffMinutes <= OFFLINE_AFTER_MINUTES) {
+      await pool.query(
+        `
+        UPDATE alert_state
+        SET alert_sent = false,
+            updated_at = NOW()
+        WHERE device_id = $1
+        `,
+        [DEVICE_ID]
+      );
+
       return NextResponse.json({
         ok: true,
         alert: false,
-        message: "Sensor 1 is online",
+        sensorOnline: true,
+        message: "Sensor online. Alert state reset.",
+        diffMinutes,
+        lastSensorTime: lastTime.toISOString(),
+      });
+    }
+
+    if (alertSent) {
+      return NextResponse.json({
+        ok: true,
+        alert: true,
+        callSkipped: true,
+        reason: "Alert already sent for this outage session",
         diffMinutes,
         lastSensorTime: lastTime.toISOString(),
       });
@@ -110,17 +149,29 @@ export async function GET() {
     const callResults = [];
 
     for (const phone of PHONES) {
-      const callResult = await zadarmaCall(phone);
+      const result = await zadarmaCall(phone);
       callResults.push({
         phone,
-        result: callResult,
+        result,
       });
     }
+
+    await pool.query(
+      `
+      UPDATE alert_state
+      SET alert_sent = true,
+          updated_at = NOW()
+      WHERE device_id = $1
+      `,
+      [DEVICE_ID]
+    );
 
     return NextResponse.json({
       ok: true,
       alert: true,
-      message: "Sensor 1 offline more than 5 minutes",
+      callSent: true,
+      alertText: ALERT_TEXT,
+      message: "Sensor offline more than 5 minutes. Calls sent once.",
       diffMinutes,
       lastSensorTime: lastTime.toISOString(),
       callResults,
