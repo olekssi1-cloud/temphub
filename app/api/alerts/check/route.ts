@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { Pool } from "pg";
 
+// ================= DB =================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
 });
 
-const ZADARMA_KEY = "67270010bcdda0322e85";
-const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
+// ================= ZADARMA =================
+const ZADARMA_KEY = process.env.ZADARMA_KEY;
+const ZADARMA_SECRET = process.env.ZADARMA_SECRET;
 
 const FROM = "100";
 const SIP = "100";
@@ -18,9 +20,11 @@ const PHONES = [
   "380662765486",
 ];
 
+// ================= SETTINGS =================
 const DEVICE_ID = "1";
 const OFFLINE_AFTER_MINUTES = 5;
 
+// ================= HELPERS =================
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
     .sort()
@@ -29,6 +33,10 @@ function buildQuery(params: Record<string, string>) {
 }
 
 function generateSignature(method: string, paramsString: string) {
+  if (!ZADARMA_SECRET) {
+    throw new Error("Missing ZADARMA_SECRET in Vercel Environment Variables");
+  }
+
   const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
 
   const hmacHex = crypto
@@ -40,6 +48,10 @@ function generateSignature(method: string, paramsString: string) {
 }
 
 async function zadarmaCall(to: string) {
+  if (!ZADARMA_KEY) {
+    throw new Error("Missing ZADARMA_KEY in Vercel Environment Variables");
+  }
+
   const method = "/v1/request/callback/";
 
   const paramsString = buildQuery({
@@ -67,6 +79,7 @@ async function zadarmaCall(to: string) {
   }
 }
 
+// ================= MAIN =================
 export async function GET() {
   try {
     const tempResult = await pool.query(
@@ -90,6 +103,7 @@ export async function GET() {
 
     const lastTime = new Date(tempResult.rows[0].created_at);
     const now = new Date();
+
     const diffMinutes = (now.getTime() - lastTime.getTime()) / 1000 / 60;
 
     await pool.query(
@@ -112,6 +126,7 @@ export async function GET() {
 
     const alertSent = stateResult.rows[0]?.alert_sent === true;
 
+    // Якщо сенсор онлайн — скидаємо антиспам
     if (diffMinutes <= OFFLINE_AFTER_MINUTES) {
       await pool.query(
         `
@@ -129,24 +144,32 @@ export async function GET() {
         sensorOnline: true,
         message: "Sensor online. Alert state reset.",
         diffMinutes,
+        lastSensorTime: lastTime.toISOString(),
       });
     }
 
+    // Якщо вже дзвонили під час цієї аварії — більше не дзвонимо
     if (alertSent) {
       return NextResponse.json({
         ok: true,
         alert: true,
         callSkipped: true,
-        reason: "Alert already sent for this outage",
+        reason: "Alert already sent for this outage session",
         diffMinutes,
+        lastSensorTime: lastTime.toISOString(),
       });
     }
 
+    // Якщо сенсор офлайн більше 5 хв і ще не дзвонили — дзвонимо
     const callResults = [];
 
     for (const phone of PHONES) {
       const result = await zadarmaCall(phone);
-      callResults.push({ phone, result });
+
+      callResults.push({
+        phone,
+        result,
+      });
     }
 
     await pool.query(
@@ -165,13 +188,17 @@ export async function GET() {
       callSent: true,
       message: "Sensor offline more than 5 minutes. Calls sent once.",
       diffMinutes,
+      lastSensorTime: lastTime.toISOString(),
       callResults,
     });
   } catch (e) {
-    return NextResponse.json({
-      ok: false,
-      alert: false,
-      error: String(e),
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        alert: false,
+        error: String(e),
+      },
+      { status: 500 }
+    );
   }
 }
