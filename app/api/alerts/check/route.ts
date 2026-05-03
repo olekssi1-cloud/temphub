@@ -6,8 +6,9 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
 });
 
-const ZADARMA_KEY = process.env.ZADARMA_KEY!;
-const ZADARMA_SECRET = process.env.ZADARMA_SECRET!;
+
+const ZADARMA_KEY = "67270010bcdda0322e85";
+const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
 const FROM = "100";
 const SIP = "100";
