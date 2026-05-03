@@ -6,7 +6,6 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
 });
 
-
 const ZADARMA_KEY = "67270010bcdda0322e85";
 const ZADARMA_SECRET = "3f22e0545422f51aa7e9";
 
@@ -16,13 +15,11 @@ const SIP = "100";
 const PHONES = [
   "380668954751",
   "380668834130",
-  "380662765486", // третій номер сюди, без +
+  "380662765486",
 ];
 
 const DEVICE_ID = "1";
 const OFFLINE_AFTER_MINUTES = 5;
-
-const ALERT_TEXT = "У зеленому куті відсутнє світло або інтернет.";
 
 function buildQuery(params: Record<string, string>) {
   return Object.keys(params)
@@ -132,7 +129,6 @@ export async function GET() {
         sensorOnline: true,
         message: "Sensor online. Alert state reset.",
         diffMinutes,
-        lastSensorTime: lastTime.toISOString(),
       });
     }
 
@@ -141,9 +137,8 @@ export async function GET() {
         ok: true,
         alert: true,
         callSkipped: true,
-        reason: "Alert already sent for this outage session",
+        reason: "Alert already sent for this outage",
         diffMinutes,
-        lastSensorTime: lastTime.toISOString(),
       });
     }
 
@@ -151,10 +146,7 @@ export async function GET() {
 
     for (const phone of PHONES) {
       const result = await zadarmaCall(phone);
-      callResults.push({
-        phone,
-        result,
-      });
+      callResults.push({ phone, result });
     }
 
     await pool.query(
@@ -171,10 +163,8 @@ export async function GET() {
       ok: true,
       alert: true,
       callSent: true,
-      alertText: ALERT_TEXT,
       message: "Sensor offline more than 5 minutes. Calls sent once.",
       diffMinutes,
-      lastSensorTime: lastTime.toISOString(),
       callResults,
     });
   } catch (e) {
