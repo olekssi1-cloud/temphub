@@ -17,6 +17,8 @@ export async function GET() {
         let min24 = 0;
         let max24 = 0;
         let rpm = 0;
+        let humidity = 0;
+        let mode = "auto";
 
         // ===== TEMPERATURE =====
         try {
@@ -52,10 +54,10 @@ export async function GET() {
           console.log("temperature read error", id, e);
         }
 
-        // ===== MOTOR =====
+        // ===== MOTOR / HUMIDITY / MODE =====
         try {
           const motorRows = await sql`
-            SELECT rpm
+            SELECT rpm, humidity, mode
             FROM motor_live
             WHERE CAST(device_id AS TEXT) = ${deviceId}
             LIMIT 1
@@ -63,6 +65,8 @@ export async function GET() {
 
           if (motorRows.length > 0) {
             rpm = Number(motorRows[0].rpm ?? 0);
+            humidity = Number(motorRows[0].humidity ?? 0);
+            mode = String(motorRows[0].mode ?? "auto");
           }
         } catch (e) {
           console.log("motor read error", id, e);
@@ -72,16 +76,16 @@ export async function GET() {
           updatedAt &&
           Date.now() - new Date(updatedAt).getTime() < 5 * 60 * 1000;
 
-        const safeRpm = online ? rpm : 0;
-
         return {
           id,
-          temp,
+          temp: online ? temp : 0,
           updatedAt,
-          min24,
-          max24,
+          min24: online ? min24 : 0,
+          max24: online ? max24 : 0,
           online: !!online,
-          rpm: safeRpm,
+          rpm: online ? rpm : 0,
+          humidity: online ? humidity : 0,
+          mode: online ? mode : "auto",
         };
       })
     );

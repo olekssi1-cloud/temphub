@@ -11,6 +11,8 @@ type Sensor = {
   max24: number;
   online: boolean;
   rpm: number;
+  humidity: number;
+  mode: string;
 };
 
 const sensorNames: Record<number, string> = {
@@ -94,8 +96,15 @@ export default function HomePage() {
                   {sensor.temp.toFixed(1)}°C
                 </div>
 
-                <div style={{ marginTop: 6, opacity: 0.8 }}>
-                  RPM: {sensor.rpm}
+                <div style={{ marginTop: 6, opacity: 0.85 }}>
+                  Вологість: {sensor.humidity.toFixed(1)}%
+                </div>
+
+                <div style={{ marginTop: 6, opacity: 0.85 }}>
+                  Двигун:{" "}
+                  {sensor.mode === "manual"
+                    ? "Ручне керування"
+                    : `${sensor.rpm}%`}
                 </div>
 
                 <div style={{ marginTop: 6, opacity: 0.7 }}>
