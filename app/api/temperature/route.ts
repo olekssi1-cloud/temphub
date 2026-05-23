@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
 
     const tempRaw = searchParams.get("temp");
     const rpmRaw = searchParams.get("rpm");
+    const humidityRaw = searchParams.get("humidity");
+    const modeRaw = searchParams.get("mode");
 
     const deviceIdRaw =
       searchParams.get("device_id") ||
@@ -26,40 +28,57 @@ export async function GET(request: NextRequest) {
       searchParams.get("sensorId") ||
       "1";
 
-    if (!tempRaw) {
-      return makeJson({ ok: false, error: "Missing temp" }, 400);
-    }
-
-    const temp = Number(tempRaw);
-    if (Number.isNaN(temp)) {
-      return makeJson({ ok: false, error: "Invalid temp" }, 400);
-    }
-
     const deviceId = String(deviceIdRaw).trim();
+
     if (!deviceId) {
       return makeJson({ ok: false, error: "Invalid device id" }, 400);
     }
 
-    // Температура — як і раніше в історію
-    await sql`
-      INSERT INTO temperature_logs (device_id, temp, created_at)
-      VALUES (${deviceId}, ${temp}, NOW())
-    `;
+    if (tempRaw !== null) {
+      const temp = Number(tempRaw);
 
-    // RPM — тільки поточне значення, без історії
-    if (rpmRaw !== null) {
-      const rpm = Number(rpmRaw);
-
-      if (!Number.isNaN(rpm)) {
-        await sql`
-          INSERT INTO motor_live (device_id, rpm, updated_at)
-          VALUES (${deviceId}, ${Math.round(rpm)}, NOW())
-          ON CONFLICT (device_id)
-          DO UPDATE SET
-            rpm = EXCLUDED.rpm,
-            updated_at = NOW()
-        `;
+      if (Number.isNaN(temp)) {
+        return makeJson({ ok: false, error: "Invalid temp" }, 400);
       }
+
+      await sql`
+        INSERT INTO temperature_logs (device_id, temp, created_at)
+        VALUES (${deviceId}, ${temp}, NOW())
+      `;
+    }
+
+    const rpm = rpmRaw !== null ? Number(rpmRaw) : null;
+    const humidity = humidityRaw !== null ? Number(humidityRaw) : null;
+    const mode =
+      modeRaw === "manual" || modeRaw === "auto" ? modeRaw : null;
+
+    if (
+      (rpm !== null && !Number.isNaN(rpm)) ||
+      (humidity !== null && !Number.isNaN(humidity)) ||
+      mode !== null
+    ) {
+      await sql`
+        INSERT INTO motor_live (
+          device_id,
+          rpm,
+          humidity,
+          mode,
+          updated_at
+        )
+        VALUES (
+          ${deviceId},
+          ${rpm !== null && !Number.isNaN(rpm) ? Math.round(rpm) : 0},
+          ${humidity !== null && !Number.isNaN(humidity) ? humidity : 0},
+          ${mode ?? "auto"},
+          NOW()
+        )
+        ON CONFLICT (device_id)
+        DO UPDATE SET
+          rpm = COALESCE(EXCLUDED.rpm, motor_live.rpm),
+          humidity = COALESCE(EXCLUDED.humidity, motor_live.humidity),
+          mode = COALESCE(EXCLUDED.mode, motor_live.mode),
+          updated_at = NOW()
+      `;
     }
 
     const latestRows = await sql`
@@ -79,7 +98,7 @@ export async function GET(request: NextRequest) {
       ok: true,
       status: "ok",
       deviceId,
-      temp: latest ? Number(latest.temp) : temp,
+      temp: latest ? Number(latest.temp) : tempRaw ? Number(tempRaw) : null,
       updatedAt: latest?.created_at
         ? new Date(latest.created_at).toISOString()
         : new Date().toISOString(),
