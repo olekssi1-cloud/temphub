@@ -47,16 +47,20 @@ export async function GET(request: NextRequest) {
       `;
     }
 
-    const rpm = rpmRaw !== null ? Number(rpmRaw) : null;
-    const humidity = humidityRaw !== null ? Number(humidityRaw) : null;
+    const rpm =
+      rpmRaw !== null && !Number.isNaN(Number(rpmRaw))
+        ? Math.round(Number(rpmRaw))
+        : null;
+
+    const humidity =
+      humidityRaw !== null && !Number.isNaN(Number(humidityRaw))
+        ? Number(humidityRaw)
+        : null;
+
     const mode =
       modeRaw === "manual" || modeRaw === "auto" ? modeRaw : null;
 
-    if (
-      (rpm !== null && !Number.isNaN(rpm)) ||
-      (humidity !== null && !Number.isNaN(humidity)) ||
-      mode !== null
-    ) {
+    if (rpm !== null || humidity !== null || mode !== null) {
       await sql`
         INSERT INTO motor_live (
           device_id,
@@ -67,9 +71,9 @@ export async function GET(request: NextRequest) {
         )
         VALUES (
           ${deviceId},
-          ${rpm !== null && !Number.isNaN(rpm) ? Math.round(rpm) : 0},
-          ${humidity !== null && !Number.isNaN(humidity) ? humidity : 0},
-          ${mode ?? "auto"},
+          ${rpm},
+          ${humidity},
+          ${mode},
           NOW()
         )
         ON CONFLICT (device_id)
@@ -81,27 +85,10 @@ export async function GET(request: NextRequest) {
       `;
     }
 
-    const latestRows = await sql`
-      SELECT
-        CAST(device_id AS TEXT) AS device_id,
-        temp,
-        created_at
-      FROM temperature_logs
-      WHERE CAST(device_id AS TEXT) = ${deviceId}
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-
-    const latest = latestRows[0] ?? null;
-
     return makeJson({
       ok: true,
       status: "ok",
       deviceId,
-      temp: latest ? Number(latest.temp) : tempRaw ? Number(tempRaw) : null,
-      updatedAt: latest?.created_at
-        ? new Date(latest.created_at).toISOString()
-        : new Date().toISOString(),
     });
   } catch (error) {
     return makeJson(
