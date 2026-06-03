@@ -34,18 +34,10 @@ export async function GET(request: NextRequest) {
       return makeJson({ ok: false, error: "Invalid device id" }, 400);
     }
 
-    if (tempRaw !== null) {
-      const temp = Number(tempRaw);
-
-      if (Number.isNaN(temp)) {
-        return makeJson({ ok: false, error: "Invalid temp" }, 400);
-      }
-
-      await sql`
-        INSERT INTO temperature_logs (device_id, temp, created_at)
-        VALUES (${deviceId}, ${temp}, NOW())
-      `;
-    }
+    const temp =
+      tempRaw !== null && !Number.isNaN(Number(tempRaw))
+        ? Number(tempRaw)
+        : null;
 
     const rpm =
       rpmRaw !== null && !Number.isNaN(Number(rpmRaw))
@@ -57,8 +49,18 @@ export async function GET(request: NextRequest) {
         ? Number(humidityRaw)
         : null;
 
-    const mode =
-      modeRaw === "manual" || modeRaw === "auto" ? modeRaw : null;
+    const mode = modeRaw === "manual" || modeRaw === "auto" ? modeRaw : "auto";
+
+    if (tempRaw !== null && temp === null) {
+      return makeJson({ ok: false, error: "Invalid temp" }, 400);
+    }
+
+    if (temp !== null) {
+      await sql`
+        INSERT INTO temperature_logs (device_id, temp, created_at)
+        VALUES (${deviceId}, ${temp}, NOW())
+      `;
+    }
 
     if (rpm !== null || humidity !== null || mode !== null) {
       await sql`
@@ -85,10 +87,35 @@ export async function GET(request: NextRequest) {
       `;
     }
 
+    if (temp !== null || humidity !== null || rpm !== null) {
+      await sql`
+        INSERT INTO sensor_history (
+          device_id,
+          temp,
+          humidity,
+          rpm,
+          mode,
+          created_at
+        )
+        VALUES (
+          ${deviceId},
+          ${temp},
+          ${humidity},
+          ${rpm},
+          ${mode},
+          NOW()
+        )
+      `;
+    }
+
     return makeJson({
       ok: true,
       status: "ok",
       deviceId,
+      temp,
+      humidity,
+      rpm,
+      mode,
     });
   } catch (error) {
     return makeJson(
