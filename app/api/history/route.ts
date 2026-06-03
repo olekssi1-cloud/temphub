@@ -6,16 +6,23 @@ export const revalidate = 0;
 
 function getRangeToInterval(range: string) {
   switch (range) {
+    case "12h":
+      return "12 hours";
+    case "1d":
+      return "1 day";
+    case "3d":
+      return "3 days";
+
+    // залишаю старі варіанти, щоб нічого не зламати
     case "1h":
       return "1 hour";
     case "10h":
       return "10 hours";
     case "24h":
       return "24 hours";
-    case "3d":
-      return "3 days";
+
     default:
-      return "24 hours";
+      return "12 hours";
   }
 }
 
@@ -23,31 +30,74 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
 
-    const range = searchParams.get("range") || "24h";
+    const range = searchParams.get("range") || "12h";
+
     const sensorId =
       searchParams.get("sensorId") ||
       searchParams.get("device_id") ||
+      searchParams.get("deviceId") ||
       "1";
 
     const intervalValue = getRangeToInterval(range);
     const deviceId = String(sensorId).trim();
 
+    if (!deviceId) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid device id" },
+        {
+          status: 400,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
     const rows = await sql`
-      SELECT temp, created_at
-      FROM temperature_logs
+      SELECT
+        temp,
+        humidity,
+        rpm,
+        mode,
+        created_at
+      FROM sensor_history
       WHERE CAST(device_id AS TEXT) = ${deviceId}
         AND created_at >= NOW() - CAST(${intervalValue} AS interval)
-        AND temp > -100
       ORDER BY created_at ASC
     `;
 
-    const data = rows.map((row: any) => ({
-      temp: Number(row.temp),
-      time:
-        row.created_at instanceof Date
-          ? row.created_at.toISOString()
-          : new Date(row.created_at).toISOString(),
-    }));
+    const data = rows.map((row: any) => {
+      const mode = row.mode === "manual" ? "manual" : "auto";
+
+      const rpm =
+        row.rpm === null || row.rpm === undefined ? null : Number(row.rpm);
+
+      return {
+        temp:
+          row.temp === null || row.temp === undefined
+            ? null
+            : Number(row.temp),
+
+        humidity:
+          row.humidity === null || row.humidity === undefined
+            ? null
+            : Number(row.humidity),
+
+        rpm,
+
+        mode,
+
+        // для графіка двигуна:
+        // auto   -> реальний rpm
+        // manual -> умовна лінія 10%, щоб було видно ручне керування
+        motorGraph: mode === "manual" ? 10 : rpm,
+
+        time:
+          row.created_at instanceof Date
+            ? row.created_at.toISOString()
+            : new Date(row.created_at).toISOString(),
+      };
+    });
 
     return NextResponse.json(data, {
       headers: {
