@@ -39,7 +39,7 @@ function normalizeHistory(input: unknown): HistoryPoint[] {
       temp: item?.temp === null ? null : Number(item?.temp),
       humidity: item?.humidity === null ? null : Number(item?.humidity),
       rpm: item?.rpm === null ? null : Number(item?.rpm),
-      mode: item?.mode === "manual" ? "manual" : "auto",
+      mode: (item?.mode === "manual" ? "manual" : "auto") as "auto" | "manual",
       motorGraph:
         item?.motorGraph === null || item?.motorGraph === undefined
           ? null
