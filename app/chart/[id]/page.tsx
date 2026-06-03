@@ -4,201 +4,295 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-type Point = {
-  temp: number;
+type PeriodKey = "12h" | "1d" | "3d";
+
+type HistoryPoint = {
+  temp: number | null;
+  humidity: number | null;
+  rpm: number | null;
+  mode: "auto" | "manual";
+  motorGraph: number | null;
   time: string;
 };
 
-const sensorTitles: Record<number, string> = {
-  1: "Опорос",
-  2: "Супорос 1",
-  3: "Супорос 2",
-  4: "Супорос 3",
-  5: "Відгодівля",
-  6: "Дорощування",
-  7: "Рем свинки 6",
-  8: "Двір",
-};
-
-const ranges = [
-  { key: "1h", label: "1 година" },
-  { key: "10h", label: "10 годин" },
-  { key: "24h", label: "24 години" },
+const periods: { key: PeriodKey; label: string }[] = [
+  { key: "12h", label: "12 год" },
+  { key: "1d", label: "1 день" },
   { key: "3d", label: "3 дні" },
 ];
 
-function formatKyivTime(value: string) {
-  return new Intl.DateTimeFormat("uk-UA", {
-    timeZone: "Europe/Kyiv",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+const sensorNames: Record<string, string> = {
+  "1": "Опорос",
+  "2": "Супорос 1",
+  "3": "Супорос 2",
+  "4": "Супорос 3",
+  "5": "Відгодівля",
+  "6": "Карантин",
+  "7": "Подвір'я",
+};
+
+function normalizeHistory(input: unknown): HistoryPoint[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((item: any) => ({
+      temp: item?.temp === null ? null : Number(item?.temp),
+      humidity: item?.humidity === null ? null : Number(item?.humidity),
+      rpm: item?.rpm === null ? null : Number(item?.rpm),
+      mode: item?.mode === "manual" ? "manual" : "auto",
+      motorGraph:
+        item?.motorGraph === null || item?.motorGraph === undefined
+          ? null
+          : Number(item?.motorGraph),
+      time: String(item?.time ?? ""),
+    }))
+    .filter((item) => item.time);
 }
 
-function formatKyivDateTime(value: string) {
+function formatKyivTime(dateString: string, period: PeriodKey) {
+  const date = new Date(dateString);
+
+  if (period === "3d") {
+    return new Intl.DateTimeFormat("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  }
+
   return new Intl.DateTimeFormat("uk-UA", {
     timeZone: "Europe/Kyiv",
-    day: "2-digit",
-    month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
+}
+
+function minMax(values: Array<number | null>) {
+  const nums = values.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
+  return {
+    min: nums.length ? Math.min(...nums) : 0,
+    max: nums.length ? Math.max(...nums) : 0,
+    last: nums.length ? nums[nums.length - 1] : 0,
+  };
+}
+
+function buildPath(
+  points: HistoryPoint[],
+  key: "temp" | "humidity" | "motorGraph",
+  yMax: number,
+  width: number,
+  height: number,
+  margin: { top: number; right: number; bottom: number; left: number }
+) {
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  let path = "";
+  let started = false;
+
+  points.forEach((point, index) => {
+    const value = point[key];
+
+    if (value === null || Number.isNaN(value)) {
+      started = false;
+      return;
+    }
+
+    const x = margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
+    const y = margin.top + innerHeight - (value / yMax) * innerHeight;
+
+    path += `${started ? " L" : " M"}${x.toFixed(2)},${y.toFixed(2)}`;
+    started = true;
+  });
+
+  return path.trim();
 }
 
 export default function ChartPage() {
   const params = useParams();
-  const rawId = params?.id;
-  const sensorId = Number(Array.isArray(rawId) ? rawId[0] : rawId);
+  const id = String(params?.id ?? "1");
 
-  const [range, setRange] = useState("24h");
-  const [points, setPoints] = useState<Point[]>([]);
+  const [period, setPeriod] = useState<PeriodKey>("12h");
+  const [points, setPoints] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const [showTemp, setShowTemp] = useState(true);
+  const [showHumidity, setShowHumidity] = useState(true);
+  const [showMotor, setShowMotor] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      if (!sensorId || Number.isNaN(sensorId)) return;
+    let cancelled = false;
 
+    async function loadHistory() {
       try {
         setLoading(true);
+        setError("");
 
-        const res = await fetch(
-          `/api/history?sensorId=${sensorId}&range=${range}`,
-          { cache: "no-store" }
-        );
+        const res = await fetch(`/api/history?device_id=${id}&range=${period}`, {
+          cache: "no-store",
+        });
 
         const json = await res.json();
-        setPoints(Array.isArray(json) ? json : []);
-      } catch (error) {
-        console.error("chart load error", error);
-        setPoints([]);
+        const normalized = normalizeHistory(json);
+
+        if (!cancelled) {
+          setPoints(normalized);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError("Не вдалося завантажити графік");
+          setPoints([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
-    load();
-  }, [sensorId, range]);
+    loadHistory();
+    const timer = setInterval(loadHistory, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [id, period]);
+
+  const tempStats = useMemo(() => minMax(points.map((p) => p.temp)), [points]);
+  const humidityStats = useMemo(() => minMax(points.map((p) => p.humidity)), [points]);
+  const motorStats = useMemo(() => minMax(points.map((p) => p.motorGraph)), [points]);
+
+  const lastPoint = points.length ? points[points.length - 1] : null;
+  const motorCurrent =
+    lastPoint?.mode === "manual"
+      ? "Ручне"
+      : `${Math.round(lastPoint?.rpm ?? 0)}%`;
 
   const chart = useMemo(() => {
     const width = 900;
     const height = 420;
-    const left = 58;
-    const right = 20;
-    const top = 18;
-    const bottom = 42;
+    const margin = { top: 24, right: 58, bottom: 50, left: 58 };
 
-    const innerWidth = width - left - right;
-    const innerHeight = height - top - bottom;
+    const yMax = 100;
 
-    const safeTemps = points.length ? points.map((p) => p.temp) : [0];
-    const maxTemp = Math.max(...safeTemps, 30);
-    const minTemp = Math.min(...safeTemps, 0);
+    const tempPath = buildPath(points, "temp", yMax, width, height, margin);
+    const humidityPath = buildPath(points, "humidity", yMax, width, height, margin);
+    const motorPath = buildPath(points, "motorGraph", yMax, width, height, margin);
 
-    const yMin = 0;
-    const yMax = Math.max(30, Math.ceil(maxTemp + 2));
+    const tickCount = 5;
+    const innerWidth = width - margin.left - margin.right;
 
-    const tempToY = (temp: number) =>
-      top + innerHeight - ((temp - yMin) / (yMax - yMin)) * innerHeight;
+    const xTicks = Array.from({ length: tickCount }, (_, i) => {
+      const index = Math.min(
+        points.length - 1,
+        Math.round((i / (tickCount - 1)) * Math.max(points.length - 1, 0))
+      );
 
-    const xAt = (index: number) =>
-      left +
-      (points.length <= 1 ? innerWidth / 2 : (index / (points.length - 1)) * innerWidth);
+      const x = margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
 
-    const path = points
-      .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${tempToY(p.temp)}`)
-      .join(" ");
+      return {
+        x,
+        label: points[index]?.time ?? "",
+      };
+    });
 
     return {
       width,
       height,
-      left,
-      right,
-      top,
-      bottom,
-      innerWidth,
-      innerHeight,
-      yMin,
+      margin,
       yMax,
-      tempToY,
-      xAt,
-      path,
-      min: Math.min(...safeTemps),
-      max: Math.max(...safeTemps),
-      current: safeTemps[safeTemps.length - 1] ?? 0,
+      tempPath,
+      humidityPath,
+      motorPath,
+      xTicks,
+      yTicks: [0, 25, 50, 75, 100],
     };
   }, [points]);
-
-  const activePoint =
-    activeIndex !== null && points[activeIndex] ? points[activeIndex] : null;
-
-  const title = sensorTitles[sensorId] ?? `Сенсор ${sensorId}`;
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(180deg,#07142a,#0b1b3a)",
-        color: "white",
+        background: "#f8fafc",
+        color: "#0f172a",
         padding: 16,
       }}
     >
-      <div style={{ maxWidth: 980, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: 16,
-            alignItems: "flex-start",
-            marginBottom: 16,
+            alignItems: "center",
+            marginBottom: 18,
           }}
         >
-          <div>
-            <div style={{ fontSize: 22, opacity: 0.9 }}>Графік температури</div>
-            <div style={{ fontSize: 42, fontWeight: 900 }}>{title}</div>
-          </div>
-
           <Link
             href="/"
             style={{
+              color: "#0f172a",
               textDecoration: "none",
-              color: "white",
-              background: "#244aa8",
-              padding: "12px 18px",
-              borderRadius: 16,
-              fontWeight: 700,
+              fontSize: 34,
+              fontWeight: 900,
             }}
           >
-            Назад
+            ‹
           </Link>
+
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ fontSize: 34, margin: 0 }}>Графік</h1>
+            <div style={{ fontSize: 22, marginTop: 8 }}>
+              {sensorNames[id] ?? `Сенсор ${id}`}
+            </div>
+          </div>
+
+          <div
+            style={{
+              width: 84,
+              height: 44,
+              borderRadius: 999,
+              background: "#e5e7eb",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-around",
+              fontSize: 24,
+            }}
+          >
+            ☀️ 🌙
+          </div>
         </div>
 
         <div
           style={{
-            display: "flex",
-            gap: 10,
-            flexWrap: "wrap",
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 12,
             marginBottom: 16,
           }}
         >
-          {ranges.map((item) => (
+          {periods.map((p) => (
             <button
-              key={item.key}
-              onClick={() => setRange(item.key)}
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
               style={{
-                border: 0,
-                borderRadius: 14,
-                padding: "12px 18px",
-                fontWeight: 800,
-                color: "white",
+                border: "1px solid #e5e7eb",
+                borderRadius: 16,
+                padding: "14px 8px",
                 cursor: "pointer",
                 background:
-                  range === item.key
-                    ? "linear-gradient(90deg,#2d9cff,#30d5ff)"
-                    : "#244aa8",
+                  period === p.key
+                    ? "linear-gradient(135deg,#7c3aed,#6d28d9)"
+                    : "white",
+                color: period === p.key ? "white" : "#0f172a",
+                fontWeight: 800,
+                fontSize: 18,
               }}
             >
-              {item.label}
+              {p.label}
             </button>
           ))}
         </div>
@@ -206,239 +300,236 @@ export default function ChartPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3,minmax(0,1fr))",
-            gap: 14,
-            marginBottom: 18,
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 12,
+            marginBottom: 16,
           }}
         >
-          <div
-            style={{
-              background: "linear-gradient(180deg,#12579c,#11437e)",
-              borderRadius: 20,
-              padding: 18,
-            }}
-          >
-            <div style={{ opacity: 0.85 }}>Поточна</div>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>
-              {chart.current.toFixed(1)}°C
+          <div style={cardStyle("#dbeafe")}>
+            <div style={{ fontSize: 18 }}>🌡 Температура</div>
+            <div style={bigValueStyle}>{tempStats.last.toFixed(1)}°C</div>
+            <div style={minMaxStyle}>
+              Мін. {tempStats.min.toFixed(1)}°C<br />
+              Макс. {tempStats.max.toFixed(1)}°C
             </div>
           </div>
 
-          <div
-            style={{
-              background: "linear-gradient(180deg,#174d8f,#123c72)",
-              borderRadius: 20,
-              padding: 18,
-            }}
-          >
-            <div style={{ opacity: 0.85 }}>Min</div>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>
-              {chart.min.toFixed(1)}°C
+          <div style={cardStyle("#dcfce7")}>
+            <div style={{ fontSize: 18 }}>💧 Вологість</div>
+            <div style={bigValueStyle}>{humidityStats.last.toFixed(1)}%</div>
+            <div style={minMaxStyle}>
+              Мін. {humidityStats.min.toFixed(1)}%<br />
+              Макс. {humidityStats.max.toFixed(1)}%
             </div>
           </div>
 
-          <div
-            style={{
-              background: "linear-gradient(180deg,#7a2e18,#5c1f11)",
-              borderRadius: 20,
-              padding: 18,
-            }}
-          >
-            <div style={{ opacity: 0.85 }}>Max</div>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>
-              {chart.max.toFixed(1)}°C
+          <div style={cardStyle("#ffedd5")}>
+            <div style={{ fontSize: 18 }}>🌀 Двигун</div>
+            <div style={bigValueStyle}>{motorCurrent}</div>
+            <div style={minMaxStyle}>
+              Мін. {motorStats.min.toFixed(0)}%<br />
+              Макс. {motorStats.max.toFixed(0)}%
             </div>
           </div>
         </div>
 
         <div
           style={{
-            display: "flex",
-            gap: 12,
-            flexWrap: "wrap",
+            background: "white",
+            borderRadius: 22,
+            border: "1px solid #e5e7eb",
+            padding: 14,
             marginBottom: 14,
           }}
         >
           <div
             style={{
-              padding: "10px 14px",
-              borderRadius: 14,
-              background: "#1c3f93",
+              display: "flex",
+              gap: 14,
+              flexWrap: "wrap",
+              marginBottom: 12,
+              fontSize: 16,
+              fontWeight: 700,
             }}
           >
-            Холодно до 15°C
-          </div>
-          <div
-            style={{
-              padding: "10px 14px",
-              borderRadius: 14,
-              background: "#1b6b52",
-            }}
-          >
-            Норма 15–25°C
-          </div>
-          <div
-            style={{
-              padding: "10px 14px",
-              borderRadius: 14,
-              background: "#7d2432",
-            }}
-          >
-            Жарко 25°C+
-          </div>
-        </div>
+            <label>
+              <input
+                type="checkbox"
+                checked={showTemp}
+                onChange={(e) => setShowTemp(e.target.checked)}
+              />{" "}
+              Температура
+            </label>
 
-        <div
-          style={{
-            background: "linear-gradient(180deg,#132867,#102255)",
-            borderRadius: 28,
-            padding: 18,
-            position: "relative",
-            overflow: "hidden",
-            minHeight: 320,
-          }}
-        >
+            <label>
+              <input
+                type="checkbox"
+                checked={showHumidity}
+                onChange={(e) => setShowHumidity(e.target.checked)}
+              />{" "}
+              Вологість
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={showMotor}
+                onChange={(e) => setShowMotor(e.target.checked)}
+              />{" "}
+              Двигун
+            </label>
+          </div>
+
           {loading ? (
-            <div style={{ padding: 40, textAlign: "center" }}>Завантаження...</div>
+            <div>Завантаження графіка...</div>
+          ) : error ? (
+            <div style={{ color: "red" }}>{error}</div>
           ) : points.length === 0 ? (
-            <div style={{ padding: 40, textAlign: "center" }}>
-              Немає даних для цього датчика
-            </div>
+            <div>Немає даних для графіка за цей період</div>
           ) : (
-            <>
-              {activePoint && (
-                <div
-                  style={{
-                    position: "absolute",
-                    right: 16,
-                    top: 16,
-                    zIndex: 5,
-                    background: "rgba(8,15,32,0.95)",
-                    borderRadius: 14,
-                    padding: "10px 14px",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                  }}
+            <svg width="100%" height="420" viewBox="0 0 900 420">
+              {chart.yTicks.map((tick) => {
+                const y =
+                  chart.margin.top +
+                  (chart.height - chart.margin.top - chart.margin.bottom) -
+                  (tick / chart.yMax) *
+                    (chart.height - chart.margin.top - chart.margin.bottom);
+
+                return (
+                  <g key={tick}>
+                    <line
+                      x1={chart.margin.left}
+                      y1={y}
+                      x2={chart.width - chart.margin.right}
+                      y2={y}
+                      stroke="#e5e7eb"
+                    />
+                    <text
+                      x={chart.margin.left - 10}
+                      y={y + 4}
+                      fill="#64748b"
+                      fontSize="13"
+                      textAnchor="end"
+                    >
+                      {tick}
+                    </text>
+                    <text
+                      x={chart.width - chart.margin.right + 10}
+                      y={y + 4}
+                      fill="#64748b"
+                      fontSize="13"
+                    >
+                      {tick}%
+                    </text>
+                  </g>
+                );
+              })}
+
+              {chart.xTicks.map((tick, index) => (
+                <text
+                  key={index}
+                  x={tick.x}
+                  y={chart.height - 16}
+                  fill="#64748b"
+                  fontSize="13"
+                  textAnchor="middle"
                 >
-                  <div style={{ fontWeight: 900 }}>
-                    {activePoint.temp.toFixed(1)}°C
-                  </div>
-                  <div style={{ fontSize: 14, opacity: 0.85 }}>
-                    {formatKyivDateTime(activePoint.time)}
-                  </div>
-                </div>
-              )}
+                  {formatKyivTime(tick.label, period)}
+                </text>
+              ))}
 
-              <svg
-                viewBox={`0 0 ${chart.width} ${chart.height}`}
-                style={{ width: "100%", height: "auto", display: "block" }}
-              >
-                <rect
-                  x={chart.left}
-                  y={chart.tempToY(chart.yMax)}
-                  width={chart.innerWidth}
-                  height={chart.tempToY(25) - chart.tempToY(chart.yMax)}
-                  fill="rgba(220,53,69,0.16)"
-                />
-                <rect
-                  x={chart.left}
-                  y={chart.tempToY(25)}
-                  width={chart.innerWidth}
-                  height={chart.tempToY(15) - chart.tempToY(25)}
-                  fill="rgba(46,204,113,0.14)"
-                />
-                <rect
-                  x={chart.left}
-                  y={chart.tempToY(15)}
-                  width={chart.innerWidth}
-                  height={chart.tempToY(0) - chart.tempToY(15)}
-                  fill="rgba(52,152,219,0.16)"
-                />
-
-                {[0, 10, 15, 20, 25, 30, chart.yMax]
-                  .filter((v, i, a) => a.indexOf(v) === i)
-                  .map((t) => {
-                    const y = chart.tempToY(t);
-                    return (
-                      <g key={t}>
-                        <line
-                          x1={chart.left}
-                          y1={y}
-                          x2={chart.width - chart.right}
-                          y2={y}
-                          stroke="rgba(255,255,255,0.1)"
-                        />
-                        <text
-                          x={12}
-                          y={y + 5}
-                          fill="rgba(255,255,255,0.85)"
-                          fontSize="14"
-                          fontWeight="700"
-                        >
-                          {t}°C
-                        </text>
-                      </g>
-                    );
-                  })}
-
-                {[0, Math.floor((points.length - 1) / 3), Math.floor(((points.length - 1) * 2) / 3), points.length - 1]
-                  .filter((v, i, a) => v >= 0 && a.indexOf(v) === i)
-                  .map((index) => {
-                    const x = chart.xAt(index);
-                    return (
-                      <g key={index}>
-                        <line
-                          x1={x}
-                          y1={chart.top}
-                          x2={x}
-                          y2={chart.height - chart.bottom}
-                          stroke="rgba(255,255,255,0.06)"
-                        />
-                        <text
-                          x={x}
-                          y={chart.height - 10}
-                          fill="rgba(255,255,255,0.85)"
-                          fontSize="14"
-                          textAnchor="middle"
-                        >
-                          {formatKyivTime(points[index].time)}
-                        </text>
-                      </g>
-                    );
-                  })}
-
+              {showTemp && (
                 <path
-                  d={chart.path}
+                  d={chart.tempPath}
                   fill="none"
-                  stroke="#5fdcff"
+                  stroke="#0ea5e9"
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
+              )}
 
-                {points.map((point, index) => {
-                  const x = chart.xAt(index);
-                  const y = chart.tempToY(point.temp);
+              {showHumidity && (
+                <path
+                  d={chart.humidityPath}
+                  fill="none"
+                  stroke="#22c55e"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
 
-                  return (
-                    <g key={index}>
-                      <circle
-                        cx={x}
-                        cy={y}
-                        r="14"
-                        fill="transparent"
-                        onClick={() => setActiveIndex(index)}
-                      />
-                      {activeIndex === index && (
-                        <circle cx={x} cy={y} r="5" fill="#5fdcff" />
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
-            </>
+              {showMotor && (
+                <path
+                  d={chart.motorPath}
+                  fill="none"
+                  stroke="#f97316"
+                  strokeWidth="4"
+                  strokeDasharray="8 8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+            </svg>
           )}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 8,
+            background: "white",
+            border: "1px solid #e5e7eb",
+            borderRadius: 18,
+            overflow: "hidden",
+          }}
+        >
+          <Link href={`/chart/${id}`} style={navStyle}>
+            📈<br />Графік
+          </Link>
+
+          <Link href={`/disconnects/${id}`} style={navStyle}>
+            ⚡<br />Відключення
+          </Link>
+
+          <Link href={`/fan-settings/${id}`} style={navStyle}>
+            ⚙️<br />Керування
+          </Link>
         </div>
       </div>
     </main>
   );
 }
+
+function cardStyle(borderColor: string): React.CSSProperties {
+  return {
+    background: "white",
+    border: `1px solid ${borderColor}`,
+    borderRadius: 18,
+    padding: 14,
+    minHeight: 130,
+  };
+}
+
+const bigValueStyle: React.CSSProperties = {
+  fontSize: 34,
+  fontWeight: 900,
+  marginTop: 16,
+};
+
+const minMaxStyle: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: 16,
+  marginTop: 12,
+  lineHeight: 1.5,
+};
+
+const navStyle: React.CSSProperties = {
+  textAlign: "center",
+  padding: "14px 6px",
+  color: "#0f172a",
+  textDecoration: "none",
+  fontWeight: 800,
+};
