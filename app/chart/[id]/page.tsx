@@ -20,7 +20,6 @@ type TooltipState = {
   visible: boolean;
   index: number;
   x: number;
-  y: number;
 };
 
 const periods: { key: PeriodKey; label: string }[] = [
@@ -117,9 +116,7 @@ function getTempScale(points: HistoryPoint[]) {
     .map((p) => p.temp)
     .filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
 
-  if (!values.length) {
-    return { min: 0, max: 30 };
-  }
+  if (!values.length) return { min: 0, max: 30 };
 
   const minRaw = Math.min(...values);
   const maxRaw = Math.max(...values);
@@ -127,7 +124,7 @@ function getTempScale(points: HistoryPoint[]) {
   let min = Math.floor(minRaw - 2);
   let max = Math.ceil(maxRaw + 2);
 
-  if (max - min < 5) {
+  if (max - min < 6) {
     const middle = (max + min) / 2;
     min = Math.floor(middle - 3);
     max = Math.ceil(middle + 3);
@@ -144,6 +141,7 @@ function buildPath(
   margin: { top: number; right: number; bottom: number; left: number }
 ) {
   const innerWidth = width - margin.left - margin.right;
+
   let path = "";
   let started = false;
 
@@ -166,6 +164,7 @@ function buildPath(
 
     const x =
       margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
+
     const y = valueToY(value);
 
     path += `${started ? " L" : " M"}${x.toFixed(2)},${y.toFixed(2)}`;
@@ -194,7 +193,6 @@ export default function ChartPage() {
     visible: false,
     index: 0,
     x: 0,
-    y: 0,
   });
 
   useEffect(() => {
@@ -255,8 +253,8 @@ export default function ChartPage() {
 
   const chart = useMemo(() => {
     const width = 900;
-    const height = 430;
-    const margin = { top: 24, right: 62, bottom: 54, left: 62 };
+    const height = 500;
+    const margin = { top: 28, right: 64, bottom: 54, left: 64 };
 
     const innerHeight = height - margin.top - margin.bottom;
     const innerWidth = width - margin.left - margin.right;
@@ -288,7 +286,8 @@ export default function ChartPage() {
         Math.round((i / 4) * Math.max(points.length - 1, 0))
       );
 
-      const x = margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
+      const x =
+        margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
 
       return {
         x,
@@ -336,21 +335,13 @@ export default function ChartPage() {
       visible: true,
       index: Math.max(0, Math.min(points.length - 1, index)),
       x: clampedX,
-      y: 60,
     });
   }
 
   const tooltipPoint = points[tooltip.index];
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#f8fafc",
-        color: "#0f172a",
-        padding: 16,
-      }}
-    >
+    <main style={pageStyle}>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <div style={topBarStyle}>
           <Link href="/" style={backStyle}>
@@ -358,13 +349,17 @@ export default function ChartPage() {
           </Link>
 
           <div style={{ textAlign: "center" }}>
-            <h1 style={{ fontSize: 34, margin: 0 }}>Графік</h1>
-            <div style={{ fontSize: 22, marginTop: 8 }}>
+            <h1 style={{ fontSize: 32, margin: 0, fontWeight: 950 }}>
+              Графік
+            </h1>
+            <div style={{ fontSize: 20, marginTop: 4, color: "#64748b" }}>
               {sensorNames[id] ?? `Сенсор ${id}`}
             </div>
           </div>
 
-          <div style={themeButtonStyle}>☀️ 🌙</div>
+          <button type="button" style={themeButtonStyle}>
+            ☀️ 🌙
+          </button>
         </div>
 
         <div style={periodGridStyle}>
@@ -379,6 +374,7 @@ export default function ChartPage() {
                     ? "linear-gradient(135deg,#7c3aed,#6d28d9)"
                     : "white",
                 color: period === p.key ? "white" : "#0f172a",
+                borderColor: period === p.key ? "#7c3aed" : "#e5e7eb",
               }}
             >
               {p.label}
@@ -387,30 +383,36 @@ export default function ChartPage() {
         </div>
 
         <div style={cardGridStyle}>
-          <div style={cardStyle("#dbeafe")}>
-            <div style={{ fontSize: 18 }}>🌡 Температура</div>
-            <div style={bigValueStyle}>{tempStats.last.toFixed(1)}°C</div>
-            <div style={minMaxStyle}>
+          <div style={metricCardStyle("#dbeafe")}>
+            <div style={metricTitleStyle}>🌡 Температура</div>
+            <div style={{ ...metricValueStyle, color: "#0284c7" }}>
+              {tempStats.last.toFixed(1)}°C
+            </div>
+            <div style={metricSmallStyle}>
               Мін. {tempStats.min.toFixed(1)}°C
               <br />
               Макс. {tempStats.max.toFixed(1)}°C
             </div>
           </div>
 
-          <div style={cardStyle("#dcfce7")}>
-            <div style={{ fontSize: 18 }}>💧 Вологість</div>
-            <div style={bigValueStyle}>{humidityStats.last.toFixed(1)}%</div>
-            <div style={minMaxStyle}>
+          <div style={metricCardStyle("#dcfce7")}>
+            <div style={metricTitleStyle}>💧 Вологість</div>
+            <div style={{ ...metricValueStyle, color: "#16a34a" }}>
+              {humidityStats.last.toFixed(1)}%
+            </div>
+            <div style={metricSmallStyle}>
               Мін. {humidityStats.min.toFixed(1)}%
               <br />
               Макс. {humidityStats.max.toFixed(1)}%
             </div>
           </div>
 
-          <div style={cardStyle("#ffedd5")}>
-            <div style={{ fontSize: 18 }}>🌀 Двигун</div>
-            <div style={bigValueStyle}>{motorCurrent}</div>
-            <div style={minMaxStyle}>
+          <div style={metricCardStyle("#ffedd5")}>
+            <div style={metricTitleStyle}>🌀 Двигун</div>
+            <div style={{ ...metricValueStyle, color: "#ea580c" }}>
+              {motorCurrent}
+            </div>
+            <div style={metricSmallStyle}>
               Мін. {motorStats.min.toFixed(0)}%
               <br />
               Макс. {motorStats.max.toFixed(0)}%
@@ -420,7 +422,7 @@ export default function ChartPage() {
 
         <div style={chartBoxStyle}>
           <div style={checkboxRowStyle}>
-            <label>
+            <label style={{ ...checkLabelStyle, color: "#0284c7" }}>
               <input
                 type="checkbox"
                 checked={showTemp}
@@ -429,7 +431,7 @@ export default function ChartPage() {
               Температура
             </label>
 
-            <label>
+            <label style={{ ...checkLabelStyle, color: "#16a34a" }}>
               <input
                 type="checkbox"
                 checked={showHumidity}
@@ -438,7 +440,7 @@ export default function ChartPage() {
               Вологість
             </label>
 
-            <label>
+            <label style={{ ...checkLabelStyle, color: "#ea580c" }}>
               <input
                 type="checkbox"
                 checked={showMotor}
@@ -449,17 +451,17 @@ export default function ChartPage() {
           </div>
 
           {loading ? (
-            <div>Завантаження графіка...</div>
+            <div style={emptyStyle}>Завантаження графіка...</div>
           ) : error ? (
-            <div style={{ color: "red" }}>{error}</div>
+            <div style={{ ...emptyStyle, color: "red" }}>{error}</div>
           ) : points.length === 0 ? (
-            <div>Немає даних для графіка за цей період</div>
+            <div style={emptyStyle}>Немає даних для графіка за цей період</div>
           ) : (
             <svg
               ref={svgRef}
               width="100%"
-              height="430"
-              viewBox="0 0 900 430"
+              height="500"
+              viewBox="0 0 900 500"
               onPointerDown={handlePointer}
               onPointerMove={(e) => tooltip.visible && handlePointer(e)}
               onPointerUp={() =>
@@ -468,7 +470,7 @@ export default function ChartPage() {
               onPointerLeave={() =>
                 setTooltip((prev) => ({ ...prev, visible: false }))
               }
-              style={{ touchAction: "none" }}
+              style={{ touchAction: "none", display: "block" }}
             >
               {chart.percentTicks.map((tick) => {
                 const y = chart.percentToY(tick);
@@ -515,7 +517,7 @@ export default function ChartPage() {
                 <text
                   key={index}
                   x={tick.x}
-                  y={chart.height - 16}
+                  y={chart.height - 18}
                   fill="#64748b"
                   fontSize="13"
                   textAnchor="middle"
@@ -523,6 +525,24 @@ export default function ChartPage() {
                   {formatKyivTime(tick.label, period)}
                 </text>
               ))}
+
+              <line
+                x1={chart.margin.left}
+                y1={chart.margin.top}
+                x2={chart.margin.left}
+                y2={chart.height - chart.margin.bottom}
+                stroke="#cbd5e1"
+                strokeWidth="1.5"
+              />
+
+              <line
+                x1={chart.width - chart.margin.right}
+                y1={chart.margin.top}
+                x2={chart.width - chart.margin.right}
+                y2={chart.height - chart.margin.bottom}
+                stroke="#cbd5e1"
+                strokeWidth="1.5"
+              />
 
               {showTemp && (
                 <path
@@ -571,10 +591,10 @@ export default function ChartPage() {
                   />
 
                   <foreignObject
-                    x={Math.min(tooltip.x + 12, 650)}
-                    y={tooltip.y}
-                    width="235"
-                    height="155"
+                    x={Math.min(tooltip.x + 12, 640)}
+                    y={42}
+                    width="245"
+                    height="165"
                   >
                     <div style={tooltipStyle}>
                       <div style={{ fontWeight: 900, marginBottom: 8 }}>
@@ -631,91 +651,119 @@ export default function ChartPage() {
   );
 }
 
+const pageStyle: CSSProperties = {
+  minHeight: "100vh",
+  background: "#f1f5f9",
+  color: "#0f172a",
+  padding: 14,
+};
+
 const topBarStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
+  display: "grid",
+  gridTemplateColumns: "48px 1fr 84px",
   alignItems: "center",
-  marginBottom: 18,
+  marginBottom: 14,
 };
 
 const backStyle: CSSProperties = {
   color: "#0f172a",
   textDecoration: "none",
-  fontSize: 34,
+  fontSize: 38,
   fontWeight: 900,
+  lineHeight: 1,
 };
 
 const themeButtonStyle: CSSProperties = {
   width: 84,
-  height: 44,
+  height: 42,
   borderRadius: 999,
-  background: "#e5e7eb",
+  background: "white",
+  border: "1px solid #e5e7eb",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-around",
-  fontSize: 24,
+  fontSize: 22,
 };
 
 const periodGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 12,
-  marginBottom: 16,
+  gap: 10,
+  marginBottom: 12,
 };
 
 const periodButtonStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
-  borderRadius: 16,
-  padding: "14px 8px",
+  borderRadius: 14,
+  padding: "12px 8px",
   cursor: "pointer",
-  fontWeight: 800,
-  fontSize: 18,
+  fontWeight: 900,
+  fontSize: 17,
 };
 
 const cardGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 12,
-  marginBottom: 16,
+  gap: 10,
+  marginBottom: 12,
 };
 
-function cardStyle(borderColor: string): CSSProperties {
+function metricCardStyle(borderColor: string): CSSProperties {
   return {
     background: "white",
     border: `1px solid ${borderColor}`,
     borderRadius: 18,
-    padding: 14,
-    minHeight: 130,
+    padding: 12,
+    minHeight: 112,
+    boxShadow: "0 8px 20px rgba(15,23,42,0.05)",
   };
 }
 
-const bigValueStyle: CSSProperties = {
-  fontSize: 34,
-  fontWeight: 900,
-  marginTop: 16,
+const metricTitleStyle: CSSProperties = {
+  fontSize: 15,
+  fontWeight: 800,
 };
 
-const minMaxStyle: CSSProperties = {
-  color: "#64748b",
-  fontSize: 16,
+const metricValueStyle: CSSProperties = {
+  fontSize: 29,
+  fontWeight: 950,
   marginTop: 12,
-  lineHeight: 1.5,
+};
+
+const metricSmallStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: 14,
+  marginTop: 8,
+  lineHeight: 1.45,
 };
 
 const chartBoxStyle: CSSProperties = {
   background: "white",
-  borderRadius: 22,
+  borderRadius: 24,
   border: "1px solid #e5e7eb",
-  padding: 14,
-  marginBottom: 14,
+  padding: 12,
+  marginBottom: 12,
+  boxShadow: "0 10px 26px rgba(15,23,42,0.07)",
 };
 
 const checkboxRowStyle: CSSProperties = {
   display: "flex",
-  gap: 14,
+  gap: 12,
   flexWrap: "wrap",
-  marginBottom: 12,
-  fontSize: 16,
+  marginBottom: 6,
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const checkLabelStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+};
+
+const emptyStyle: CSSProperties = {
+  padding: 20,
+  color: "#64748b",
   fontWeight: 700,
 };
 
@@ -741,8 +789,8 @@ const navBoxStyle: CSSProperties = {
 
 const navStyle: CSSProperties = {
   textAlign: "center",
-  padding: "14px 6px",
+  padding: "13px 6px",
   color: "#0f172a",
   textDecoration: "none",
-  fontWeight: 800,
+  fontWeight: 900,
 };
