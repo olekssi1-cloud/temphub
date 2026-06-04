@@ -561,11 +561,11 @@ export default function ChartPage() {
                     />
 
                     <foreignObject
-                      x={Math.min(tooltip.x + 12, 635)}
-                      y={24}
-                      width="250"
-                      height="145"
-                    >
+  x={tooltip.x > 560 ? tooltip.x - 300 : tooltip.x + 16}
+  y={36}
+  width="280"
+  height="190"
+>
                       <div style={tooltipStyle}>
                         <div style={{ fontWeight: 900, marginBottom: 6 }}>
                           {formatKyivDateTime(tooltipPoint.time)}
