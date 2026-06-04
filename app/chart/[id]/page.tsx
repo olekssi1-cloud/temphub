@@ -242,8 +242,8 @@ export default function ChartPage() {
 
   const chart = useMemo(() => {
     const width = 900;
-    const height = 500;
-    const margin = { top: 26, right: 64, bottom: 52, left: 64 };
+    const height = 430;
+    const margin = { top: 24, right: 64, bottom: 48, left: 64 };
 
     const innerHeight = height - margin.top - margin.bottom;
     const innerWidth = width - margin.left - margin.right;
@@ -430,7 +430,7 @@ export default function ChartPage() {
                 ref={svgRef}
                 width="100%"
                 height="100%"
-                viewBox="0 0 900 500"
+                viewBox="0 0 900 430"
                 preserveAspectRatio="none"
                 onPointerDown={handlePointer}
                 onPointerMove={(e) => tooltip.visible && handlePointer(e)}
