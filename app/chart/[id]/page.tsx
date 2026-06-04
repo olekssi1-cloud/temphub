@@ -52,9 +52,7 @@ function normalizeHistory(input: unknown): HistoryPoint[] {
           ? null
           : Number(item.humidity),
       rpm:
-        item?.rpm === null || item?.rpm === undefined
-          ? null
-          : Number(item.rpm),
+        item?.rpm === null || item?.rpm === undefined ? null : Number(item.rpm),
       mode: (item?.mode === "manual" ? "manual" : "auto") as
         | "auto"
         | "manual",
@@ -95,7 +93,6 @@ function formatKyivDateTime(dateString: string) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
   }).format(new Date(dateString));
 }
 
@@ -141,7 +138,6 @@ function buildPath(
   margin: { top: number; right: number; bottom: number; left: number }
 ) {
   const innerWidth = width - margin.left - margin.right;
-
   let path = "";
   let started = false;
 
@@ -157,14 +153,11 @@ function buildPath(
       const prevTime = new Date(points[index - 1].time).getTime();
       const thisTime = new Date(point.time).getTime();
 
-      if (thisTime - prevTime > 3 * 60 * 1000) {
-        started = false;
-      }
+      if (thisTime - prevTime > 3 * 60 * 1000) started = false;
     }
 
     const x =
       margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
-
     const y = valueToY(value);
 
     path += `${started ? " L" : " M"}${x.toFixed(2)},${y.toFixed(2)}`;
@@ -210,18 +203,14 @@ export default function ChartPage() {
         const json = await res.json();
         const normalized = normalizeHistory(json);
 
-        if (!cancelled) {
-          setPoints(normalized);
-        }
+        if (!cancelled) setPoints(normalized);
       } catch {
         if (!cancelled) {
           setError("Не вдалося завантажити графік");
           setPoints([]);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -253,8 +242,8 @@ export default function ChartPage() {
 
   const chart = useMemo(() => {
     const width = 900;
-    const height = 500;
-    const margin = { top: 28, right: 64, bottom: 54, left: 64 };
+    const height = 360;
+    const margin = { top: 18, right: 58, bottom: 38, left: 58 };
 
     const innerHeight = height - margin.top - margin.bottom;
     const innerWidth = width - margin.left - margin.right;
@@ -271,13 +260,7 @@ export default function ChartPage() {
       margin.top + innerHeight - (value / 100) * innerHeight;
 
     const tempPath = buildPath(points, "temp", tempToY, width, margin);
-    const humidityPath = buildPath(
-      points,
-      "humidity",
-      percentToY,
-      width,
-      margin
-    );
+    const humidityPath = buildPath(points, "humidity", percentToY, width, margin);
     const motorPath = buildPath(points, "motorGraph", percentToY, width, margin);
 
     const xTicks = Array.from({ length: 5 }, (_, i) => {
@@ -289,10 +272,7 @@ export default function ChartPage() {
       const x =
         margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
 
-      return {
-        x,
-        label: points[index]?.time ?? "",
-      };
+      return { x, label: points[index]?.time ?? "" };
     });
 
     const tempTicks = Array.from({ length: 5 }, (_, i) =>
@@ -304,8 +284,6 @@ export default function ChartPage() {
       height,
       margin,
       innerWidth,
-      innerHeight,
-      tempScale,
       tempToY,
       percentToY,
       tempPath,
@@ -342,23 +320,19 @@ export default function ChartPage() {
 
   return (
     <main style={pageStyle}>
-      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={screenStyle}>
         <div style={topBarStyle}>
           <Link href="/" style={backStyle}>
             ‹
           </Link>
 
-          <div style={{ textAlign: "center" }}>
-            <h1 style={{ fontSize: 32, margin: 0, fontWeight: 950 }}>
-              Графік
-            </h1>
-            <div style={{ fontSize: 20, marginTop: 4, color: "#64748b" }}>
-              {sensorNames[id] ?? `Сенсор ${id}`}
-            </div>
+          <div style={{ textAlign: "center", minWidth: 0 }}>
+            <h1 style={titleStyle}>Графік</h1>
+            <div style={subtitleStyle}>{sensorNames[id] ?? `Сенсор ${id}`}</div>
           </div>
 
           <button type="button" style={themeButtonStyle}>
-            ☀️ 🌙
+            ☀️🌙
           </button>
         </div>
 
@@ -384,26 +358,22 @@ export default function ChartPage() {
 
         <div style={cardGridStyle}>
           <div style={metricCardStyle("#dbeafe")}>
-            <div style={metricTitleStyle}>🌡 Температура</div>
+            <div style={metricTitleStyle}>🌡 Темп.</div>
             <div style={{ ...metricValueStyle, color: "#0284c7" }}>
-              {tempStats.last.toFixed(1)}°C
+              {tempStats.last.toFixed(1)}°
             </div>
             <div style={metricSmallStyle}>
-              Мін. {tempStats.min.toFixed(1)}°C
-              <br />
-              Макс. {tempStats.max.toFixed(1)}°C
+              {tempStats.min.toFixed(1)} / {tempStats.max.toFixed(1)}
             </div>
           </div>
 
           <div style={metricCardStyle("#dcfce7")}>
-            <div style={metricTitleStyle}>💧 Вологість</div>
+            <div style={metricTitleStyle}>💧 Волог.</div>
             <div style={{ ...metricValueStyle, color: "#16a34a" }}>
               {humidityStats.last.toFixed(1)}%
             </div>
             <div style={metricSmallStyle}>
-              Мін. {humidityStats.min.toFixed(1)}%
-              <br />
-              Макс. {humidityStats.max.toFixed(1)}%
+              {humidityStats.min.toFixed(1)} / {humidityStats.max.toFixed(1)}
             </div>
           </div>
 
@@ -413,9 +383,7 @@ export default function ChartPage() {
               {motorCurrent}
             </div>
             <div style={metricSmallStyle}>
-              Мін. {motorStats.min.toFixed(0)}%
-              <br />
-              Макс. {motorStats.max.toFixed(0)}%
+              {motorStats.min.toFixed(0)} / {motorStats.max.toFixed(0)}%
             </div>
           </div>
         </div>
@@ -427,7 +395,7 @@ export default function ChartPage() {
                 type="checkbox"
                 checked={showTemp}
                 onChange={(e) => setShowTemp(e.target.checked)}
-              />{" "}
+              />
               Температура
             </label>
 
@@ -436,7 +404,7 @@ export default function ChartPage() {
                 type="checkbox"
                 checked={showHumidity}
                 onChange={(e) => setShowHumidity(e.target.checked)}
-              />{" "}
+              />
               Вологість
             </label>
 
@@ -445,205 +413,203 @@ export default function ChartPage() {
                 type="checkbox"
                 checked={showMotor}
                 onChange={(e) => setShowMotor(e.target.checked)}
-              />{" "}
+              />
               Двигун
             </label>
           </div>
 
-          {loading ? (
-            <div style={emptyStyle}>Завантаження графіка...</div>
-          ) : error ? (
-            <div style={{ ...emptyStyle, color: "red" }}>{error}</div>
-          ) : points.length === 0 ? (
-            <div style={emptyStyle}>Немає даних для графіка за цей період</div>
-          ) : (
-            <svg
-              ref={svgRef}
-              width="100%"
-              height="500"
-              viewBox="0 0 900 500"
-              onPointerDown={handlePointer}
-              onPointerMove={(e) => tooltip.visible && handlePointer(e)}
-              onPointerUp={() =>
-                setTooltip((prev) => ({ ...prev, visible: false }))
-              }
-              onPointerLeave={() =>
-                setTooltip((prev) => ({ ...prev, visible: false }))
-              }
-              style={{ touchAction: "none", display: "block" }}
-            >
-              {chart.percentTicks.map((tick) => {
-                const y = chart.percentToY(tick);
+          <div style={chartAreaStyle}>
+            {loading ? (
+              <div style={emptyStyle}>Завантаження...</div>
+            ) : error ? (
+              <div style={{ ...emptyStyle, color: "red" }}>{error}</div>
+            ) : points.length === 0 ? (
+              <div style={emptyStyle}>Немає даних</div>
+            ) : (
+              <svg
+                ref={svgRef}
+                width="100%"
+                height="100%"
+                viewBox="0 0 900 360"
+                onPointerDown={handlePointer}
+                onPointerMove={(e) => tooltip.visible && handlePointer(e)}
+                onPointerUp={() =>
+                  setTooltip((prev) => ({ ...prev, visible: false }))
+                }
+                onPointerLeave={() =>
+                  setTooltip((prev) => ({ ...prev, visible: false }))
+                }
+                style={{ touchAction: "none", display: "block" }}
+              >
+                {chart.percentTicks.map((tick) => {
+                  const y = chart.percentToY(tick);
 
-                return (
-                  <g key={`p-${tick}`}>
-                    <line
-                      x1={chart.margin.left}
-                      y1={y}
-                      x2={chart.width - chart.margin.right}
-                      y2={y}
-                      stroke="#e5e7eb"
-                    />
+                  return (
+                    <g key={`p-${tick}`}>
+                      <line
+                        x1={chart.margin.left}
+                        y1={y}
+                        x2={chart.width - chart.margin.right}
+                        y2={y}
+                        stroke="#e5e7eb"
+                      />
+                      <text
+                        x={chart.width - chart.margin.right + 10}
+                        y={y + 4}
+                        fill="#64748b"
+                        fontSize="13"
+                      >
+                        {tick}%
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {chart.tempTicks.map((tick) => {
+                  const y = chart.tempToY(tick);
+
+                  return (
                     <text
-                      x={chart.width - chart.margin.right + 12}
+                      key={`t-${tick}`}
+                      x={chart.margin.left - 8}
                       y={y + 4}
                       fill="#64748b"
                       fontSize="13"
+                      textAnchor="end"
                     >
-                      {tick}%
+                      {tick}°
                     </text>
-                  </g>
-                );
-              })}
+                  );
+                })}
 
-              {chart.tempTicks.map((tick) => {
-                const y = chart.tempToY(tick);
-
-                return (
+                {chart.xTicks.map((tick, index) => (
                   <text
-                    key={`t-${tick}`}
-                    x={chart.margin.left - 10}
-                    y={y + 4}
+                    key={index}
+                    x={tick.x}
+                    y={chart.height - 10}
                     fill="#64748b"
                     fontSize="13"
-                    textAnchor="end"
+                    textAnchor="middle"
                   >
-                    {tick}°C
+                    {formatKyivTime(tick.label, period)}
                   </text>
-                );
-              })}
+                ))}
 
-              {chart.xTicks.map((tick, index) => (
-                <text
-                  key={index}
-                  x={tick.x}
-                  y={chart.height - 18}
-                  fill="#64748b"
-                  fontSize="13"
-                  textAnchor="middle"
-                >
-                  {formatKyivTime(tick.label, period)}
-                </text>
-              ))}
-
-              <line
-                x1={chart.margin.left}
-                y1={chart.margin.top}
-                x2={chart.margin.left}
-                y2={chart.height - chart.margin.bottom}
-                stroke="#cbd5e1"
-                strokeWidth="1.5"
-              />
-
-              <line
-                x1={chart.width - chart.margin.right}
-                y1={chart.margin.top}
-                x2={chart.width - chart.margin.right}
-                y2={chart.height - chart.margin.bottom}
-                stroke="#cbd5e1"
-                strokeWidth="1.5"
-              />
-
-              {showTemp && (
-                <path
-                  d={chart.tempPath}
-                  fill="none"
-                  stroke="#0ea5e9"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <line
+                  x1={chart.margin.left}
+                  y1={chart.margin.top}
+                  x2={chart.margin.left}
+                  y2={chart.height - chart.margin.bottom}
+                  stroke="#cbd5e1"
+                  strokeWidth="1.5"
                 />
-              )}
 
-              {showHumidity && (
-                <path
-                  d={chart.humidityPath}
-                  fill="none"
-                  stroke="#22c55e"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <line
+                  x1={chart.width - chart.margin.right}
+                  y1={chart.margin.top}
+                  x2={chart.width - chart.margin.right}
+                  y2={chart.height - chart.margin.bottom}
+                  stroke="#cbd5e1"
+                  strokeWidth="1.5"
                 />
-              )}
 
-              {showMotor && (
-                <path
-                  d={chart.motorPath}
-                  fill="none"
-                  stroke="#f97316"
-                  strokeWidth="4"
-                  strokeDasharray="8 8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )}
-
-              {tooltip.visible && tooltipPoint && (
-                <>
-                  <line
-                    x1={tooltip.x}
-                    y1={chart.margin.top}
-                    x2={tooltip.x}
-                    y2={chart.height - chart.margin.bottom}
-                    stroke="#334155"
-                    strokeDasharray="5 5"
-                    strokeWidth="2"
+                {showTemp && (
+                  <path
+                    d={chart.tempPath}
+                    fill="none"
+                    stroke="#0ea5e9"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
+                )}
 
-                  <foreignObject
-                    x={Math.min(tooltip.x + 12, 640)}
-                    y={42}
-                    width="245"
-                    height="165"
-                  >
-                    <div style={tooltipStyle}>
-                      <div style={{ fontWeight: 900, marginBottom: 8 }}>
-                        {formatKyivDateTime(tooltipPoint.time)}
+                {showHumidity && (
+                  <path
+                    d={chart.humidityPath}
+                    fill="none"
+                    stroke="#22c55e"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+
+                {showMotor && (
+                  <path
+                    d={chart.motorPath}
+                    fill="none"
+                    stroke="#f97316"
+                    strokeWidth="4"
+                    strokeDasharray="8 8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+
+                {tooltip.visible && tooltipPoint && (
+                  <>
+                    <line
+                      x1={tooltip.x}
+                      y1={chart.margin.top}
+                      x2={tooltip.x}
+                      y2={chart.height - chart.margin.bottom}
+                      stroke="#334155"
+                      strokeDasharray="5 5"
+                      strokeWidth="2"
+                    />
+
+                    <foreignObject
+                      x={Math.min(tooltip.x + 12, 635)}
+                      y={24}
+                      width="250"
+                      height="145"
+                    >
+                      <div style={tooltipStyle}>
+                        <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                          {formatKyivDateTime(tooltipPoint.time)}
+                        </div>
+
+                        {showTemp && (
+                          <div>🌡 {tooltipPoint.temp?.toFixed(1)}°C</div>
+                        )}
+
+                        {showHumidity && (
+                          <div>💧 {tooltipPoint.humidity?.toFixed(1)}%</div>
+                        )}
+
+                        {showMotor && (
+                          <div>
+                            🌀{" "}
+                            {tooltipPoint.mode === "manual"
+                              ? "Ручне"
+                              : `${Math.round(tooltipPoint.rpm ?? 0)}%`}
+                          </div>
+                        )}
                       </div>
+                    </foreignObject>
+                  </>
+                )}
+              </svg>
+            )}
+          </div>
+        </div>
 
-                      {showTemp && (
-                        <div>🌡 Темп: {tooltipPoint.temp?.toFixed(1)}°C</div>
-                      )}
-
-                      {showHumidity && (
-                        <div>
-                          💧 Вологість: {tooltipPoint.humidity?.toFixed(1)}%
-                        </div>
-                      )}
-
-                      {showMotor && (
-                        <div>
-                          🌀 Двигун:{" "}
-                          {tooltipPoint.mode === "manual"
-                            ? "Ручне"
-                            : `${Math.round(tooltipPoint.rpm ?? 0)}%`}
-                        </div>
-                      )}
-                    </div>
-                  </foreignObject>
-                </>
-              )}
-            </svg>
-          )}
+        <div style={motorHintStyle}>
+          🟠 Двигун: авто — реальний %, ручне — пунктир
         </div>
 
         <div style={navBoxStyle}>
           <Link href={`/chart/${id}`} style={navStyle}>
-            📈
-            <br />
-            Графік
+            📈<br />Графік
           </Link>
 
           <Link href={`/disconnects/${id}`} style={navStyle}>
-            ⚡
-            <br />
-            Відключення
+            ⚡<br />Відключення
           </Link>
 
           <Link href={`/fan-settings/${id}`} style={navStyle}>
-            ⚙️
-            <br />
-            Керування
+            ⚙️<br />Керування
           </Link>
         </div>
       </div>
@@ -652,113 +618,149 @@ export default function ChartPage() {
 }
 
 const pageStyle: CSSProperties = {
-  minHeight: "100vh",
+  height: "100dvh",
+  overflow: "hidden",
   background: "#f1f5f9",
   color: "#0f172a",
-  padding: 14,
+};
+
+const screenStyle: CSSProperties = {
+  height: "100dvh",
+  maxWidth: 560,
+  margin: "0 auto",
+  padding: "8px 10px",
+  display: "flex",
+  flexDirection: "column",
+  gap: 7,
 };
 
 const topBarStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "48px 1fr 84px",
+  gridTemplateColumns: "36px 1fr 70px",
   alignItems: "center",
-  marginBottom: 14,
+  minHeight: 45,
 };
 
 const backStyle: CSSProperties = {
   color: "#0f172a",
   textDecoration: "none",
-  fontSize: 38,
+  fontSize: 34,
   fontWeight: 900,
   lineHeight: 1,
 };
 
+const titleStyle: CSSProperties = {
+  fontSize: "clamp(22px, 5vw, 30px)",
+  margin: 0,
+  fontWeight: 950,
+  lineHeight: 1,
+};
+
+const subtitleStyle: CSSProperties = {
+  fontSize: "clamp(14px, 3.6vw, 20px)",
+  marginTop: 3,
+  color: "#64748b",
+  lineHeight: 1,
+};
+
 const themeButtonStyle: CSSProperties = {
-  width: 84,
-  height: 42,
+  width: 70,
+  height: 34,
   borderRadius: 999,
   background: "white",
   border: "1px solid #e5e7eb",
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-around",
-  fontSize: 22,
+  justifyContent: "center",
+  fontSize: 18,
 };
 
 const periodGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 10,
-  marginBottom: 12,
+  gap: 7,
 };
 
 const periodButtonStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: "12px 8px",
+  borderRadius: 12,
+  padding: "9px 4px",
   cursor: "pointer",
   fontWeight: 900,
-  fontSize: 17,
+  fontSize: "clamp(13px, 3.5vw, 16px)",
 };
 
 const cardGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 10,
-  marginBottom: 12,
+  gap: 7,
 };
 
 function metricCardStyle(borderColor: string): CSSProperties {
   return {
     background: "white",
     border: `1px solid ${borderColor}`,
-    borderRadius: 18,
-    padding: 12,
-    minHeight: 112,
-    boxShadow: "0 8px 20px rgba(15,23,42,0.05)",
+    borderRadius: 14,
+    padding: "8px 6px",
+    minHeight: 82,
+    boxShadow: "0 6px 16px rgba(15,23,42,0.05)",
+    overflow: "hidden",
   };
 }
 
 const metricTitleStyle: CSSProperties = {
-  fontSize: 15,
+  fontSize: "clamp(11px, 3vw, 14px)",
   fontWeight: 800,
+  whiteSpace: "nowrap",
 };
 
 const metricValueStyle: CSSProperties = {
-  fontSize: 29,
+  fontSize: "clamp(20px, 6vw, 28px)",
   fontWeight: 950,
-  marginTop: 12,
+  marginTop: 7,
+  lineHeight: 1,
 };
 
 const metricSmallStyle: CSSProperties = {
   color: "#64748b",
-  fontSize: 14,
-  marginTop: 8,
-  lineHeight: 1.45,
+  fontSize: "clamp(10px, 2.8vw, 13px)",
+  marginTop: 7,
+  lineHeight: 1.2,
+  whiteSpace: "nowrap",
 };
 
 const chartBoxStyle: CSSProperties = {
   background: "white",
-  borderRadius: 24,
+  borderRadius: 18,
   border: "1px solid #e5e7eb",
-  padding: 12,
-  marginBottom: 12,
-  boxShadow: "0 10px 26px rgba(15,23,42,0.07)",
+  padding: 8,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.07)",
+  flex: "1 1 auto",
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
 };
 
 const checkboxRowStyle: CSSProperties = {
   display: "flex",
-  gap: 12,
+  justifyContent: "center",
+  gap: 10,
   flexWrap: "wrap",
-  marginBottom: 6,
-  fontSize: 15,
+  marginBottom: 4,
+  fontSize: "clamp(11px, 3vw, 14px)",
   fontWeight: 900,
+  flex: "0 0 auto",
 };
 
 const checkLabelStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  gap: 4,
+  gap: 3,
+};
+
+const chartAreaStyle: CSSProperties = {
+  flex: "1 1 auto",
+  minHeight: 0,
 };
 
 const emptyStyle: CSSProperties = {
@@ -770,27 +772,41 @@ const emptyStyle: CSSProperties = {
 const tooltipStyle: CSSProperties = {
   background: "white",
   border: "1px solid #cbd5e1",
-  borderRadius: 14,
-  padding: 12,
+  borderRadius: 12,
+  padding: 10,
   boxShadow: "0 12px 30px rgba(0,0,0,0.18)",
-  fontSize: 14,
-  lineHeight: 1.5,
+  fontSize: 13,
+  lineHeight: 1.45,
+};
+
+const motorHintStyle: CSSProperties = {
+  background: "white",
+  border: "1px solid #e5e7eb",
+  borderRadius: 14,
+  padding: "7px 10px",
+  fontSize: "clamp(11px, 3vw, 14px)",
+  color: "#64748b",
+  fontWeight: 800,
+  textAlign: "center",
+  flex: "0 0 auto",
 };
 
 const navBoxStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 8,
+  gap: 6,
   background: "white",
   border: "1px solid #e5e7eb",
-  borderRadius: 18,
+  borderRadius: 16,
   overflow: "hidden",
+  flex: "0 0 auto",
 };
 
 const navStyle: CSSProperties = {
   textAlign: "center",
-  padding: "13px 6px",
+  padding: "9px 4px",
   color: "#0f172a",
   textDecoration: "none",
   fontWeight: 900,
+  fontSize: "clamp(11px, 3vw, 14px)",
 };
