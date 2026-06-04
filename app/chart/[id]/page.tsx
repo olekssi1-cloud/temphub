@@ -242,7 +242,7 @@ export default function ChartPage() {
 
   const chart = useMemo(() => {
     const width = 900;
-    const height = 360;
+    const height = 500;
     const margin = { top: 18, right: 58, bottom: 38, left: 58 };
 
     const innerHeight = height - margin.top - margin.bottom;
@@ -430,7 +430,7 @@ export default function ChartPage() {
                 ref={svgRef}
                 width="100%"
                 height="100%"
-                viewBox="0 0 900 360"
+                viewBox="0 0 900 500"
                 onPointerDown={handlePointer}
                 onPointerMove={(e) => tooltip.visible && handlePointer(e)}
                 onPointerUp={() =>
@@ -595,10 +595,7 @@ export default function ChartPage() {
           </div>
         </div>
 
-        <div style={motorHintStyle}>
-          🟠 Двигун: авто — реальний %, ручне — пунктир
-        </div>
-
+       
         <div style={navBoxStyle}>
           <Link href={`/chart/${id}`} style={navStyle}>
             📈<br />Графік
@@ -702,7 +699,7 @@ function metricCardStyle(borderColor: string): CSSProperties {
     border: `1px solid ${borderColor}`,
     borderRadius: 14,
     padding: "8px 6px",
-    minHeight: 82,
+    minHeight: 68,
     boxShadow: "0 6px 16px rgba(15,23,42,0.05)",
     overflow: "hidden",
   };
@@ -759,8 +756,9 @@ const checkLabelStyle: CSSProperties = {
 };
 
 const chartAreaStyle: CSSProperties = {
-  flex: "1 1 auto",
-  minHeight: 0,
+  flex: 1,
+  minHeight: 360,
+  height: "100%",
 };
 
 const emptyStyle: CSSProperties = {
