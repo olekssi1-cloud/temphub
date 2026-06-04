@@ -243,7 +243,7 @@ export default function ChartPage() {
   const chart = useMemo(() => {
     const width = 900;
     const height = 500;
-    const margin = { top: 18, right: 58, bottom: 38, left: 58 };
+    const margin = { top: 26, right: 64, bottom: 52, left: 64 };
 
     const innerHeight = height - margin.top - margin.bottom;
     const innerWidth = width - margin.left - margin.right;
@@ -431,6 +431,7 @@ export default function ChartPage() {
                 width="100%"
                 height="100%"
                 viewBox="0 0 900 500"
+                preserveAspectRatio="none"
                 onPointerDown={handlePointer}
                 onPointerMove={(e) => tooltip.visible && handlePointer(e)}
                 onPointerUp={() =>
@@ -595,7 +596,6 @@ export default function ChartPage() {
           </div>
         </div>
 
-       
         <div style={navBoxStyle}>
           <Link href={`/chart/${id}`} style={navStyle}>
             📈<br />Графік
@@ -757,7 +757,7 @@ const checkLabelStyle: CSSProperties = {
 
 const chartAreaStyle: CSSProperties = {
   flex: 1,
-  minHeight: 360,
+  minHeight: 0,
   height: "100%",
 };
 
@@ -775,18 +775,6 @@ const tooltipStyle: CSSProperties = {
   boxShadow: "0 12px 30px rgba(0,0,0,0.18)",
   fontSize: 13,
   lineHeight: 1.45,
-};
-
-const motorHintStyle: CSSProperties = {
-  background: "white",
-  border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: "7px 10px",
-  fontSize: "clamp(11px, 3vw, 14px)",
-  color: "#64748b",
-  fontWeight: 800,
-  textAlign: "center",
-  flex: "0 0 auto",
 };
 
 const navBoxStyle: CSSProperties = {
