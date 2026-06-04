@@ -26,26 +26,12 @@ const sensorNames: Record<number, string> = {
   7: "Подвірʼя",
 };
 
-const sensorSubtitles: Record<number, string> = {
-  7: "(без вентилятора)",
-};
-
 const allIds = [1, 2, 3, 4, 5, 6, 7];
 
-function getSensorIcon(id: number) {
-  if (id === 7) return "🏠";
-  return "🌀";
-}
-
-function getStatusDot(online: boolean) {
-  return online ? "#00b83f" : "#ef0000";
-}
-
-function formatNumber(value: number | null | undefined, digits = 1) {
+function formatValue(value: number | null | undefined, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "0.0";
   }
-
   return Number(value).toFixed(digits);
 }
 
@@ -58,10 +44,7 @@ export default function HomePage() {
 
     async function load() {
       try {
-        const res = await fetch("/api/home-summary", {
-          cache: "no-store",
-        });
-
+        const res = await fetch("/api/home-summary", { cache: "no-store" });
         const json = await res.json();
 
         if (!cancelled) {
@@ -114,20 +97,24 @@ export default function HomePage() {
     <main style={pageStyle}>
       <div style={screenStyle}>
         <header style={headerStyle}>
-          <button style={menuButtonStyle}>☰</button>
+          <button type="button" style={menuButtonStyle}>
+            ☰
+          </button>
 
           <div style={{ textAlign: "center" }}>
             <h1 style={titleStyle}>Вентиляція</h1>
             <div style={subtitleStyle}>Список відділів</div>
           </div>
 
-          <button style={themeButtonStyle}>☀️ 🌙</button>
+          <button type="button" style={themeButtonStyle}>
+            ☀️🌙
+          </button>
         </header>
 
         <section style={summaryGridStyle}>
-          <SummaryCard icon="🌀" label="Всього відділів" value={total} />
+          <SummaryCard icon="🌀" label="Всього" value={total} />
           <SummaryCard icon="📶" label="Онлайн" value={onlineCount} />
-          <SummaryCard icon="✋" label="Ручне керування" value={manualCount} />
+          <SummaryCard icon="✋" label="Ручне" value={manualCount} />
           <SummaryCard icon="⚠️" label="Проблеми" value={problemCount} danger />
         </section>
 
@@ -136,14 +123,10 @@ export default function HomePage() {
         ) : (
           <section style={tableWrapStyle}>
             <div style={tableHeaderStyle}>
-              <div style={departmentHeaderStyle}>
-                <b>Відділ</b>
-                <span>(натисніть для деталей)</span>
-              </div>
-
-              <div style={columnHeaderStyle}>🌡 Температура</div>
-              <div style={columnHeaderStyle}>💧 Вологість</div>
-              <div style={columnHeaderStyle}>🌀 Двигун</div>
+              <div style={headCellLeftStyle}>Відділ</div>
+              <div style={headCellStyle}>🌡</div>
+              <div style={headCellStyle}>💧</div>
+              <div style={headCellStyle}>🌀</div>
             </div>
 
             {rows.map((sensor) => {
@@ -159,33 +142,29 @@ export default function HomePage() {
                   <div style={departmentCellStyle}>
                     <div
                       style={{
-                        ...roundIconStyle,
+                        ...iconStyle,
                         background: isYard
-                          ? "linear-gradient(135deg,#dcfce7,#86efac)"
+                          ? "linear-gradient(135deg,#86efac,#22c55e)"
                           : sensor.online
                             ? "linear-gradient(135deg,#60a5fa,#0284c7)"
                             : "linear-gradient(135deg,#9ca3af,#374151)",
                       }}
                     >
-                      {getSensorIcon(sensor.id)}
+                      {isYard ? "🏠" : "🌀"}
                     </div>
 
-                    <div>
+                    <div style={{ minWidth: 0 }}>
                       <div style={nameStyle}>
                         {sensorNames[sensor.id] ?? `Відділ ${sensor.id}`}
                       </div>
 
-                      {sensorSubtitles[sensor.id] && (
-                        <div style={smallNoteStyle}>
-                          {sensorSubtitles[sensor.id]}
-                        </div>
-                      )}
+                      {isYard && <div style={noteStyle}>без вентилятора</div>}
 
                       <div style={statusStyle}>
                         <span
                           style={{
-                            ...statusDotStyle,
-                            background: getStatusDot(sensor.online),
+                            ...dotStyle,
+                            background: sensor.online ? "#16a34a" : "#dc2626",
                           }}
                         />
                         {sensor.online ? "Онлайн" : "Офлайн"}
@@ -200,32 +179,27 @@ export default function HomePage() {
                         color: sensor.online ? "#0f172a" : "#dc2626",
                       }}
                     >
-                      {formatNumber(sensor.temp)}°C
+                      {formatValue(sensor.temp)}°
                     </div>
                     <div style={minMaxStyle}>
-                      <span style={{ color: "#006bd6" }}>
-                        {formatNumber(sensor.min24)}
-                      </span>{" "}
-                      /{" "}
-                      <span style={{ color: "#e00000" }}>
-                        {formatNumber(sensor.max24)}
+                      <span style={{ color: "#2563eb" }}>
+                        {formatValue(sensor.min24)}
+                      </span>
+                      /
+                      <span style={{ color: "#dc2626" }}>
+                        {formatValue(sensor.max24)}
                       </span>
                     </div>
                   </div>
 
                   <div style={valueCellStyle}>
-                    <div
-                      style={{
-                        ...mainValueStyle,
-                        color: sensor.online ? "#0f172a" : "#dc2626",
-                      }}
-                    >
-                      {formatNumber(sensor.humidity)}%
+                    <div style={mainValueStyle}>
+                      {formatValue(sensor.humidity)}%
                     </div>
                     <div style={minMaxStyle}>
-                      <span style={{ color: "#006bd6" }}>0.0</span> /{" "}
-                      <span style={{ color: "#e00000" }}>
-                        {formatNumber(sensor.humidity)}
+                      <span style={{ color: "#2563eb" }}>0.0</span>/
+                      <span style={{ color: "#dc2626" }}>
+                        {formatValue(sensor.humidity)}
                       </span>
                     </div>
                   </div>
@@ -241,13 +215,14 @@ export default function HomePage() {
                         <div
                           style={{
                             ...mainValueStyle,
-                            color: isManual ? "#f59e0b" : "#00a832",
+                            color: isManual ? "#f59e0b" : "#16a34a",
+                            fontSize: isManual ? "clamp(13px,3.4vw,18px)" : undefined,
                           }}
                         >
                           {isManual ? "Ручне" : `${Math.round(sensor.rpm)}%`}
                         </div>
                         <div style={minMaxStyle}>
-                          {sensor.online ? "10% / 100%" : "0% / 0%"}
+                          {sensor.online ? "10/100" : "0/0"}
                         </div>
                       </>
                     )}
@@ -259,16 +234,10 @@ export default function HomePage() {
         )}
 
         <section style={legendStyle}>
-          <div>
-            <LegendItem color="#00b83f" text="Онлайн — відділ працює та на звʼязку" />
-            <LegendItem color="#ef0000" text="Офлайн — немає звʼязку з відділом" />
-            <LegendItem color="#f59e0b" text="Ручне — ручне керування двигуном" />
-            <LegendItem color="#00a832" text="% — автоматичне керування двигуном" />
-          </div>
-
-          <div style={infoTextStyle}>
-            ⓘ Натисніть на рядок відділу, щоб відкрити детальний графік.
-          </div>
+          <LegendItem color="#16a34a" text="Онлайн" />
+          <LegendItem color="#dc2626" text="Офлайн" />
+          <LegendItem color="#f59e0b" text="Ручне" />
+          <LegendItem color="#16a34a" text="% авто" />
         </section>
 
         <nav style={bottomNavStyle}>
@@ -279,15 +248,9 @@ export default function HomePage() {
           </Link>
 
           <Link href="/disconnects" style={bottomNavItemStyle}>
-            ⏻
+            ⚡
             <br />
             Відключення
-          </Link>
-
-          <Link href="/fan-settings" style={bottomNavItemStyle}>
-            🎛️
-            <br />
-            Керування
           </Link>
         </nav>
       </div>
@@ -314,10 +277,8 @@ function SummaryCard({
       }}
     >
       <div style={summaryIconStyle}>{icon}</div>
-      <div>
-        <div style={summaryLabelStyle}>{label}</div>
-        <div style={summaryValueStyle}>{value}</div>
-      </div>
+      <div style={summaryLabelStyle}>{label}</div>
+      <div style={summaryValueStyle}>{value}</div>
     </div>
   );
 }
@@ -338,86 +299,83 @@ const pageStyle: CSSProperties = {
 };
 
 const screenStyle: CSSProperties = {
-  maxWidth: 980,
+  maxWidth: 560,
   margin: "0 auto",
-  padding: "10px 12px 12px",
+  padding: "10px",
 };
 
 const headerStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "52px 1fr 110px",
+  gridTemplateColumns: "42px 1fr 78px",
   alignItems: "center",
-  marginBottom: 12,
+  marginBottom: 10,
 };
 
 const menuButtonStyle: CSSProperties = {
   border: "none",
   background: "transparent",
-  fontSize: 34,
+  fontSize: 30,
   color: "#0f172a",
-  cursor: "pointer",
 };
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "clamp(28px, 5vw, 42px)",
+  fontSize: "clamp(28px,7vw,40px)",
   fontWeight: 950,
   lineHeight: 1,
 };
 
 const subtitleStyle: CSSProperties = {
-  marginTop: 5,
-  fontSize: "clamp(16px, 3vw, 22px)",
-  color: "#334155",
+  marginTop: 4,
+  fontSize: "clamp(14px,4vw,20px)",
+  color: "#64748b",
+  fontWeight: 700,
 };
 
 const themeButtonStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   background: "white",
   borderRadius: 999,
-  height: 44,
-  fontSize: 23,
+  height: 38,
+  fontSize: 18,
   boxShadow: "0 4px 12px rgba(15,23,42,0.08)",
 };
 
 const summaryGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4, 1fr)",
-  gap: 12,
-  marginBottom: 14,
+  gap: 6,
+  marginBottom: 10,
 };
 
 const summaryCardStyle: CSSProperties = {
   background: "white",
   border: "1px solid #e5e7eb",
-  borderRadius: 16,
-  padding: 14,
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  minHeight: 82,
+  borderRadius: 14,
+  padding: "8px 4px",
+  textAlign: "center",
+  minHeight: 78,
+  boxShadow: "0 5px 14px rgba(15,23,42,0.05)",
 };
 
 const summaryIconStyle: CSSProperties = {
-  width: 46,
-  height: 46,
-  borderRadius: 999,
-  display: "grid",
-  placeItems: "center",
-  fontSize: 28,
-  background: "#eff6ff",
+  fontSize: 22,
+  lineHeight: 1,
 };
 
 const summaryLabelStyle: CSSProperties = {
-  fontSize: 15,
-  lineHeight: 1.2,
+  marginTop: 4,
+  fontSize: "clamp(10px,2.8vw,13px)",
+  color: "#64748b",
+  fontWeight: 800,
+  lineHeight: 1.1,
 };
 
 const summaryValueStyle: CSSProperties = {
-  fontSize: 32,
+  marginTop: 4,
+  fontSize: "clamp(20px,5vw,28px)",
   fontWeight: 950,
   lineHeight: 1,
-  marginTop: 4,
 };
 
 const tableWrapStyle: CSSProperties = {
@@ -425,35 +383,34 @@ const tableWrapStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: 16,
   overflow: "hidden",
+  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
 };
 
 const tableHeaderStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.35fr 1fr 1fr 1fr",
-  background: "#f8fafc",
+  gridTemplateColumns: "1.35fr 0.72fr 0.72fr 0.72fr",
+  background: "#f1f5f9",
   borderBottom: "1px solid #e5e7eb",
 };
 
-const departmentHeaderStyle: CSSProperties = {
-  padding: 16,
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  fontSize: 18,
+const headCellLeftStyle: CSSProperties = {
+  padding: "10px 8px",
+  fontSize: "clamp(13px,3.4vw,16px)",
+  fontWeight: 950,
 };
 
-const columnHeaderStyle: CSSProperties = {
-  padding: 16,
-  fontWeight: 900,
-  fontSize: 15,
+const headCellStyle: CSSProperties = {
+  padding: "10px 2px",
+  fontSize: "clamp(14px,3.4vw,17px)",
+  fontWeight: 950,
   textAlign: "center",
   borderLeft: "1px solid #e5e7eb",
 };
 
 const rowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.35fr 1fr 1fr 1fr",
-  minHeight: 92,
+  gridTemplateColumns: "1.35fr 0.72fr 0.72fr 0.72fr",
+  minHeight: 76,
   color: "#0f172a",
   textDecoration: "none",
   borderBottom: "1px solid #e5e7eb",
@@ -462,46 +419,53 @@ const rowStyle: CSSProperties = {
 const departmentCellStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 12,
-  padding: 14,
+  gap: 7,
+  padding: "8px 6px",
+  minWidth: 0,
 };
 
-const roundIconStyle: CSSProperties = {
-  width: 48,
-  height: 48,
+const iconStyle: CSSProperties = {
+  width: 34,
+  height: 34,
   borderRadius: 999,
   display: "grid",
   placeItems: "center",
   color: "white",
-  fontSize: 25,
+  fontSize: 18,
   flex: "0 0 auto",
 };
 
 const nameStyle: CSSProperties = {
-  fontSize: 22,
+  fontSize: "clamp(13px,3.7vw,18px)",
   fontWeight: 950,
-  lineHeight: 1.1,
+  lineHeight: 1.05,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
-const smallNoteStyle: CSSProperties = {
-  fontSize: 12,
-  color: "#334155",
-  marginTop: 2,
+const noteStyle: CSSProperties = {
+  fontSize: 10,
+  color: "#64748b",
+  marginTop: 1,
 };
 
 const statusStyle: CSSProperties = {
-  marginTop: 5,
+  marginTop: 4,
   display: "flex",
   alignItems: "center",
-  gap: 7,
-  fontSize: 14,
+  gap: 5,
+  fontSize: "clamp(10px,2.8vw,13px)",
+  color: "#64748b",
+  fontWeight: 800,
 };
 
-const statusDotStyle: CSSProperties = {
-  width: 11,
-  height: 11,
+const dotStyle: CSSProperties = {
+  width: 9,
+  height: 9,
   borderRadius: 999,
   display: "inline-block",
+  flex: "0 0 auto",
 };
 
 const valueCellStyle: CSSProperties = {
@@ -510,61 +474,57 @@ const valueCellStyle: CSSProperties = {
   justifyContent: "center",
   textAlign: "center",
   borderLeft: "1px solid #e5e7eb",
-  padding: "8px 6px",
+  padding: "4px 2px",
+  minWidth: 0,
 };
 
 const mainValueStyle: CSSProperties = {
-  fontSize: 24,
+  fontSize: "clamp(14px,4vw,20px)",
   fontWeight: 950,
   lineHeight: 1.1,
+  whiteSpace: "nowrap",
 };
 
 const minMaxStyle: CSSProperties = {
-  marginTop: 6,
-  fontSize: 16,
-  fontWeight: 800,
+  marginTop: 5,
+  fontSize: "clamp(10px,2.9vw,14px)",
+  fontWeight: 850,
+  whiteSpace: "nowrap",
 };
 
 const legendStyle: CSSProperties = {
-  marginTop: 14,
+  marginTop: 10,
   background: "white",
   border: "1px solid #e5e7eb",
-  borderRadius: 16,
-  padding: 14,
+  borderRadius: 14,
+  padding: "8px",
   display: "grid",
-  gridTemplateColumns: "1.2fr 1fr",
-  gap: 14,
-  alignItems: "center",
+  gridTemplateColumns: "repeat(4, 1fr)",
+  gap: 4,
 };
 
 const legendItemStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 8,
-  fontSize: 15,
-  marginBottom: 5,
+  justifyContent: "center",
+  gap: 4,
+  fontSize: "clamp(10px,2.8vw,13px)",
+  fontWeight: 800,
+  color: "#475569",
 };
 
 const legendDotStyle: CSSProperties = {
-  width: 11,
-  height: 11,
+  width: 9,
+  height: 9,
   borderRadius: 999,
   display: "inline-block",
   flex: "0 0 auto",
 };
 
-const infoTextStyle: CSSProperties = {
-  borderLeft: "1px solid #e5e7eb",
-  paddingLeft: 20,
-  fontSize: 16,
-  color: "#334155",
-  lineHeight: 1.45,
-};
-
 const bottomNavStyle: CSSProperties = {
-  marginTop: 14,
+  marginTop: 10,
   display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
+  gridTemplateColumns: "repeat(2, 1fr)",
   background: "white",
   border: "1px solid #e5e7eb",
   borderRadius: 16,
@@ -573,11 +533,11 @@ const bottomNavStyle: CSSProperties = {
 
 const bottomNavItemStyle: CSSProperties = {
   textAlign: "center",
-  padding: "12px 6px",
+  padding: "11px 6px",
   color: "#0f172a",
   textDecoration: "none",
-  fontWeight: 900,
-  fontSize: 15,
+  fontWeight: 950,
+  fontSize: "clamp(12px,3.2vw,15px)",
   borderLeft: "1px solid #e5e7eb",
 };
 
