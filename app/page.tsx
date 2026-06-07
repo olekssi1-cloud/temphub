@@ -14,6 +14,10 @@ type Sensor = {
   rpm: number;
   humidity: number;
   mode: string;
+  wifi_level?: number;
+  wifiLevel?: number;
+  wifi_rssi?: number;
+  wifiRssi?: number;
 };
 
 const sensorNames: Record<number, string> = {
@@ -27,12 +31,28 @@ const sensorNames: Record<number, string> = {
 };
 
 const allIds = [1, 2, 3, 4, 5, 6, 7];
+const fanIds = [1, 2, 3, 4, 5, 6];
 
 function formatValue(value: number | null | undefined, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "0.0";
   }
   return Number(value).toFixed(digits);
+}
+
+function getWifiLevel(sensor: Sensor) {
+  const raw = sensor.wifiLevel ?? sensor.wifi_level ?? 0;
+  const level = Number(raw);
+
+  if (Number.isNaN(level)) return 0;
+  return Math.max(0, Math.min(10, Math.round(level)));
+}
+
+function getWifiColor(level: number) {
+  if (level >= 8) return "#16a34a";
+  if (level >= 5) return "#eab308";
+  if (level >= 1) return "#dc2626";
+  return "#94a3b8";
 }
 
 export default function HomePage() {
@@ -83,15 +103,18 @@ export default function HomePage() {
           rpm: 0,
           humidity: 0,
           mode: "auto",
+          wifiLevel: 0,
         }
       );
     });
   }, [sensors]);
 
-  const total = rows.length;
-  const onlineCount = rows.filter((s) => s.online).length;
-  const manualCount = rows.filter((s) => s.mode === "manual").length;
-  const problemCount = rows.filter((s) => !s.online).length;
+  const fanRows = rows.filter((s) => fanIds.includes(Number(s.id)));
+
+  const total = 6;
+  const onlineCount = fanRows.filter((s) => s.online).length;
+  const manualCount = fanRows.filter((s) => s.mode === "manual").length;
+  const problemCount = fanRows.filter((s) => !s.online).length;
 
   return (
     <main style={pageStyle}>
@@ -112,7 +135,7 @@ export default function HomePage() {
         </header>
 
         <section style={summaryGridStyle}>
-          <SummaryCard icon="🌀" label="Всього" value={total} />
+          <SummaryCard icon="✺" label="Всього" value={total} />
           <SummaryCard icon="📶" label="Онлайн" value={onlineCount} />
           <SummaryCard icon="✋" label="Ручне" value={manualCount} />
           <SummaryCard icon="⚠️" label="Проблеми" value={problemCount} danger />
@@ -126,12 +149,14 @@ export default function HomePage() {
               <div style={headCellLeftStyle}>Відділ</div>
               <div style={headCellStyle}>🌡</div>
               <div style={headCellStyle}>💧</div>
-              <div style={headCellStyle}>🌀</div>
+              <div style={headCellStyle}>✺</div>
             </div>
 
             {rows.map((sensor) => {
               const isYard = sensor.id === 7;
               const isManual = sensor.mode === "manual";
+              const wifiLevel = getWifiLevel(sensor);
+              const wifiColor = getWifiColor(wifiLevel);
 
               return (
                 <Link
@@ -150,7 +175,7 @@ export default function HomePage() {
                             : "linear-gradient(135deg,#9ca3af,#374151)",
                       }}
                     >
-                      {isYard ? "🏠" : "🌀"}
+                      {isYard ? "🏠" : "✺"}
                     </div>
 
                     <div style={{ minWidth: 0 }}>
@@ -168,6 +193,10 @@ export default function HomePage() {
                           }}
                         />
                         {sensor.online ? "Онлайн" : "Офлайн"}
+                      </div>
+
+                      <div style={{ ...wifiStyle, color: wifiColor }}>
+                        📶 Wi-Fi: {wifiLevel}
                       </div>
                     </div>
                   </div>
@@ -216,7 +245,9 @@ export default function HomePage() {
                           style={{
                             ...mainValueStyle,
                             color: isManual ? "#f59e0b" : "#16a34a",
-                            fontSize: isManual ? "clamp(13px,3.4vw,18px)" : undefined,
+                            fontSize: isManual
+                              ? "clamp(13px,3.4vw,18px)"
+                              : undefined,
                           }}
                         >
                           {isManual ? "Ручне" : `${Math.round(sensor.rpm)}%`}
@@ -359,7 +390,7 @@ const summaryCardStyle: CSSProperties = {
 };
 
 const summaryIconStyle: CSSProperties = {
-  fontSize: 22,
+  fontSize: 24,
   lineHeight: 1,
 };
 
@@ -410,7 +441,7 @@ const headCellStyle: CSSProperties = {
 const rowStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1.35fr 0.72fr 0.72fr 0.72fr",
-  minHeight: 76,
+  minHeight: 86,
   color: "#0f172a",
   textDecoration: "none",
   borderBottom: "1px solid #e5e7eb",
@@ -431,7 +462,8 @@ const iconStyle: CSSProperties = {
   display: "grid",
   placeItems: "center",
   color: "white",
-  fontSize: 18,
+  fontSize: 19,
+  fontWeight: 900,
   flex: "0 0 auto",
 };
 
@@ -458,6 +490,13 @@ const statusStyle: CSSProperties = {
   fontSize: "clamp(10px,2.8vw,13px)",
   color: "#64748b",
   fontWeight: 800,
+};
+
+const wifiStyle: CSSProperties = {
+  marginTop: 3,
+  fontSize: "clamp(10px,2.8vw,13px)",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
 };
 
 const dotStyle: CSSProperties = {
