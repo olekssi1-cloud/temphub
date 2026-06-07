@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 type Sensor = {
   id: number;
@@ -14,10 +14,10 @@ type Sensor = {
   rpm: number;
   humidity: number;
   mode: string;
-  wifi_level?: number;
-  wifiLevel?: number;
-  wifi_rssi?: number;
-  wifiRssi?: number;
+  wifi_level?: number | null;
+  wifiLevel?: number | null;
+  wifi_rssi?: number | null;
+  wifiRssi?: number | null;
 };
 
 const sensorNames: Record<number, string> = {
@@ -37,20 +37,22 @@ function formatValue(value: number | null | undefined, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "0.0";
   }
+
   return Number(value).toFixed(digits);
 }
 
 function getWifiLevel(sensor: Sensor) {
   const raw = sensor.wifiLevel ?? sensor.wifi_level ?? 0;
-  const level = Number(raw);
+  const value = Number(raw);
 
-  if (Number.isNaN(level)) return 0;
-  return Math.max(0, Math.min(10, Math.round(level)));
+  if (Number.isNaN(value)) return 0;
+
+  return Math.max(0, Math.min(10, Math.round(value)));
 }
 
 function getWifiColor(level: number) {
   if (level >= 8) return "#16a34a";
-  if (level >= 5) return "#eab308";
+  if (level >= 5) return "#f59e0b";
   if (level >= 1) return "#dc2626";
   return "#94a3b8";
 }
@@ -111,7 +113,7 @@ export default function HomePage() {
 
   const fanRows = rows.filter((s) => fanIds.includes(Number(s.id)));
 
-  const total = 6;
+  const totalFans = fanRows.length;
   const onlineCount = fanRows.filter((s) => s.online).length;
   const manualCount = fanRows.filter((s) => s.mode === "manual").length;
   const problemCount = fanRows.filter((s) => !s.online).length;
@@ -135,7 +137,11 @@ export default function HomePage() {
         </header>
 
         <section style={summaryGridStyle}>
-          <SummaryCard icon="✺" label="Всього" value={total} />
+          <SummaryCard
+            icon={<FanIcon size={34} color="#1684f8" />}
+            label="Вентиляторів"
+            value={totalFans}
+          />
           <SummaryCard icon="📶" label="Онлайн" value={onlineCount} />
           <SummaryCard icon="✋" label="Ручне" value={manualCount} />
           <SummaryCard icon="⚠️" label="Проблеми" value={problemCount} danger />
@@ -149,7 +155,9 @@ export default function HomePage() {
               <div style={headCellLeftStyle}>Відділ</div>
               <div style={headCellStyle}>🌡</div>
               <div style={headCellStyle}>💧</div>
-              <div style={headCellStyle}>✺</div>
+              <div style={headCellStyle}>
+                <FanIcon size={24} color="#334155" />
+              </div>
             </div>
 
             {rows.map((sensor) => {
@@ -167,7 +175,7 @@ export default function HomePage() {
                   <div style={departmentCellStyle}>
                     <div
                       style={{
-                        ...iconStyle,
+                        ...iconCircleStyle,
                         background: isYard
                           ? "linear-gradient(135deg,#86efac,#22c55e)"
                           : sensor.online
@@ -175,7 +183,7 @@ export default function HomePage() {
                             : "linear-gradient(135deg,#9ca3af,#374151)",
                       }}
                     >
-                      {isYard ? "🏠" : "✺"}
+                      {isYard ? "🏠" : <FanIcon size={24} color="white" />}
                     </div>
 
                     <div style={{ minWidth: 0 }}>
@@ -195,8 +203,9 @@ export default function HomePage() {
                         {sensor.online ? "Онлайн" : "Офлайн"}
                       </div>
 
-                      <div style={{ ...wifiStyle, color: wifiColor }}>
-                        📶 Wi-Fi: {wifiLevel}
+                      <div style={wifiStyle}>
+                        <WifiIcon color={wifiColor} size={17} />
+                        <span>{wifiLevel}</span>
                       </div>
                     </div>
                   </div>
@@ -252,9 +261,7 @@ export default function HomePage() {
                         >
                           {isManual ? "Ручне" : `${Math.round(sensor.rpm)}%`}
                         </div>
-                        <div style={minMaxStyle}>
-                          {sensor.online ? "10/100" : "0/0"}
-                        </div>
+                        <div style={minMaxStyle}>10/100</div>
                       </>
                     )}
                   </div>
@@ -295,7 +302,7 @@ function SummaryCard({
   value,
   danger,
 }: {
-  icon: string;
+  icon: ReactNode;
   label: string;
   value: number;
   danger?: boolean;
@@ -320,6 +327,76 @@ function LegendItem({ color, text }: { color: string; text: string }) {
       <span style={{ ...legendDotStyle, background: color }} />
       {text}
     </div>
+  );
+}
+
+function FanIcon({
+  size = 24,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="32" cy="32" r="6" fill={color} />
+      <path
+        d="M34 26C40 10 55 11 58 22C61 33 47 38 36 34C33 33 32 29 34 26Z"
+        fill={color}
+      />
+      <path
+        d="M28 31C11 28 7 14 17 8C27 2 36 14 34 26C33 29 31 32 28 31Z"
+        fill={color}
+      />
+      <path
+        d="M31 38C42 51 36 63 25 62C14 61 15 46 27 35C30 33 33 35 31 38Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+function WifiIcon({
+  size = 16,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M8 24C21 12 43 12 56 24"
+        stroke={color}
+        strokeWidth="7"
+        strokeLinecap="round"
+      />
+      <path
+        d="M18 34C26 27 38 27 46 34"
+        stroke={color}
+        strokeWidth="7"
+        strokeLinecap="round"
+      />
+      <path
+        d="M27 44C30 41 34 41 37 44"
+        stroke={color}
+        strokeWidth="7"
+        strokeLinecap="round"
+      />
+      <circle cx="32" cy="53" r="4" fill={color} />
+    </svg>
   );
 }
 
@@ -390,6 +467,10 @@ const summaryCardStyle: CSSProperties = {
 };
 
 const summaryIconStyle: CSSProperties = {
+  height: 30,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
   fontSize: 24,
   lineHeight: 1,
 };
@@ -436,6 +517,9 @@ const headCellStyle: CSSProperties = {
   fontWeight: 950,
   textAlign: "center",
   borderLeft: "1px solid #e5e7eb",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const rowStyle: CSSProperties = {
@@ -455,15 +539,13 @@ const departmentCellStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const iconStyle: CSSProperties = {
-  width: 34,
-  height: 34,
+const iconCircleStyle: CSSProperties = {
+  width: 36,
+  height: 36,
   borderRadius: 999,
   display: "grid",
   placeItems: "center",
   color: "white",
-  fontSize: 19,
-  fontWeight: 900,
   flex: "0 0 auto",
 };
 
@@ -494,7 +576,11 @@ const statusStyle: CSSProperties = {
 
 const wifiStyle: CSSProperties = {
   marginTop: 3,
+  display: "flex",
+  alignItems: "center",
+  gap: 5,
   fontSize: "clamp(10px,2.8vw,13px)",
+  color: "#475569",
   fontWeight: 900,
   whiteSpace: "nowrap",
 };
