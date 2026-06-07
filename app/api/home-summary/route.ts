@@ -19,8 +19,9 @@ export async function GET() {
         let rpm = 0;
         let humidity = 0;
         let mode = "auto";
+        let wifiLevel = 0;
+        let wifiRssi = 0;
 
-        // ===== TEMPERATURE =====
         try {
           const tempRows = await sql`
             SELECT temp, created_at
@@ -54,10 +55,9 @@ export async function GET() {
           console.log("temperature read error", id, e);
         }
 
-        // ===== MOTOR / HUMIDITY / MODE =====
         try {
           const motorRows = await sql`
-            SELECT rpm, humidity, mode
+            SELECT rpm, humidity, mode, wifi_level, wifi_rssi
             FROM motor_live
             WHERE CAST(device_id AS TEXT) = ${deviceId}
             LIMIT 1
@@ -67,6 +67,8 @@ export async function GET() {
             rpm = Number(motorRows[0].rpm ?? 0);
             humidity = Number(motorRows[0].humidity ?? 0);
             mode = String(motorRows[0].mode ?? "auto");
+            wifiLevel = Number(motorRows[0].wifi_level ?? 0);
+            wifiRssi = Number(motorRows[0].wifi_rssi ?? 0);
           }
         } catch (e) {
           console.log("motor read error", id, e);
@@ -86,6 +88,10 @@ export async function GET() {
           rpm: online ? rpm : 0,
           humidity: online ? humidity : 0,
           mode: online ? mode : "auto",
+
+          // Wi-Fi НЕ обнуляємо, навіть якщо ESP офлайн
+          wifiLevel,
+          wifiRssi,
         };
       })
     );
