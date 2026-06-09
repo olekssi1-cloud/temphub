@@ -27,7 +27,7 @@ const sensorNames: Record<string, string> = {
   "4": "Супорос 3",
   "5": "Відгодівля",
   "6": "Карантин",
-  "7": "Подвірʼя",
+  
 };
 
 export default function FanSettingsPage() {
@@ -87,6 +87,7 @@ export default function FanSettingsPage() {
       try {
         const res = await fetch("/api/home-summary", { cache: "no-store" });
         const data = await res.json();
+
         const found = (data.sensors ?? []).find(
           (s: Sensor) => Number(s.id) === Number(deviceId)
         );
@@ -317,7 +318,9 @@ export default function FanSettingsPage() {
             <span
               style={{
                 ...onlineBadgeStyle,
-                background: sensor?.online ? "rgba(22,163,74,0.16)" : "rgba(220,38,38,0.14)",
+                background: sensor?.online
+                  ? "rgba(22,163,74,0.16)"
+                  : "rgba(220,38,38,0.14)",
                 color: sensor?.online ? "#16a34a" : "#dc2626",
               }}
             >
@@ -327,13 +330,13 @@ export default function FanSettingsPage() {
 
           <div style={statusGridStyle}>
             <StatusItem icon="📶" label="Wi-Fi" value={`${wifiLevel}/10`} theme={theme} />
-            <StatusItem icon="🌡" label="Температура" value={`${Number(sensor?.temp ?? 0).toFixed(1)}°C`} theme={theme} />
-            <StatusItem icon="💧" label="Вологість" value={`${Number(sensor?.humidity ?? 0).toFixed(0)}%`} theme={theme} />
-            <StatusItem icon="🌀" label="Вентилятор" value={fanValue} theme={theme} />
+            <StatusItem icon="🌡" label="Темп." value={`${Number(sensor?.temp ?? 0).toFixed(1)}°`} theme={theme} />
+            <StatusItem icon="💧" label="Волог." value={`${Number(sensor?.humidity ?? 0).toFixed(0)}%`} theme={theme} />
+            <StatusItem icon="🌀" label="Вент." value={fanValue} theme={theme} />
           </div>
         </section>
 
-        <section style={{ ...cardStyle, background: theme.card, borderColor: theme.border }}>
+        <section style={{ ...smallCardStyle, background: theme.card, borderColor: theme.border }}>
           <h2 style={cardTitleStyle}>⚡ Перший запуск після зміни правил</h2>
 
           <div style={simpleRowStyle}>
@@ -341,25 +344,41 @@ export default function FanSettingsPage() {
             <input
               value={startupSeconds}
               onChange={(e) => setStartupSeconds(e.target.value)}
-              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              style={{
+                ...smallInputStyle,
+                background: theme.input,
+                color: theme.text,
+                borderColor: theme.border,
+              }}
               inputMode="numeric"
             />
             <b>сек</b>
           </div>
 
           <div style={simpleRowStyle}>
-            <span>Потужність вентилятора</span>
+            <span>Потужність</span>
             <input
               value={startupPercent}
               onChange={(e) => setStartupPercent(e.target.value)}
-              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              style={{
+                ...smallInputStyle,
+                background: theme.input,
+                color: theme.text,
+                borderColor: theme.border,
+              }}
               inputMode="numeric"
             />
             <b>%</b>
           </div>
         </section>
 
-        <section style={{ ...cardStyle, background: theme.card, borderColor: theme.border }}>
+        <section
+          style={{
+            ...rulesCardStyle,
+            background: theme.card,
+            borderColor: theme.border,
+          }}
+        >
           <h2 style={cardTitleStyle}>Правила керування вентилятором (50)</h2>
 
           <div style={{ ...rulesBoxStyle, borderColor: theme.border }}>
@@ -384,11 +403,18 @@ export default function FanSettingsPage() {
                     key={i}
                     style={{
                       ...rulesRowStyle,
-                      background: active ? "rgba(22,163,74,0.22)" : "transparent",
+                      background: active
+                        ? "rgba(22,163,74,0.22)"
+                        : "transparent",
                       borderColor: theme.border,
                     }}
                   >
-                    <div style={{ fontWeight: 900, color: active ? "#22c55e" : theme.text }}>
+                    <div
+                      style={{
+                        fontWeight: 900,
+                        color: active ? "#22c55e" : theme.text,
+                      }}
+                    >
                       {i + 1}
                     </div>
 
@@ -425,11 +451,17 @@ export default function FanSettingsPage() {
         </section>
 
         <div style={buttonsRowStyle}>
-          <button onClick={clearAll} style={{ ...actionButtonStyle, background: "#dc2626" }}>
+          <button
+            onClick={clearAll}
+            style={{ ...actionButtonStyle, background: "#dc2626" }}
+          >
             🗑 Очистити
           </button>
 
-          <button onClick={setDefault} style={{ ...actionButtonStyle, background: "#2563eb" }}>
+          <button
+            onClick={setDefault}
+            style={{ ...actionButtonStyle, background: "#2563eb" }}
+          >
             ↻ Заводські
           </button>
 
@@ -441,12 +473,18 @@ export default function FanSettingsPage() {
               background: saving ? "#64748b" : "#16a34a",
             }}
           >
-            💾 {saving ? "Збереження..." : "Зберегти"}
+            💾 {saving ? "..." : "Зберегти"}
           </button>
         </div>
       </div>
 
-      <nav style={{ ...bottomNavStyle, background: theme.nav, borderColor: theme.border }}>
+      <nav
+        style={{
+          ...bottomNavStyle,
+          background: theme.nav,
+          borderColor: theme.border,
+        }}
+      >
         <BottomLink href="/" icon="⌂" text="Головна" active={false} theme={theme} />
         <BottomLink href={`/chart/${deviceId}`} icon="▥" text="Графік" active={false} theme={theme} />
         <BottomLink href={`/fan-settings/${deviceId}`} icon="☷" text="Керування" active theme={theme} />
@@ -497,7 +535,7 @@ function BottomLink({
         color: active ? "#2563eb" : theme.muted,
       }}
     >
-      <div style={{ fontSize: 25, lineHeight: 1 }}>{icon}</div>
+      <div style={{ fontSize: 24, lineHeight: 1 }}>{icon}</div>
       <div>{text}</div>
     </Link>
   );
@@ -516,67 +554,95 @@ const lightTheme = {
 
 const darkTheme = {
   bg: "#07111f",
-  card: "rgba(15, 23, 42, 0.92)",
-  nav: "rgba(15, 23, 42, 0.96)",
+  card: "rgba(15,23,42,0.94)",
+  nav: "rgba(15,23,42,0.98)",
   text: "#f8fafc",
   muted: "#cbd5e1",
   border: "rgba(148,163,184,0.22)",
-  input: "rgba(15,23,42,0.85)",
-  header: "rgba(30,41,59,0.7)",
+  input: "rgba(15,23,42,0.88)",
+  header: "rgba(30,41,59,0.8)",
 };
 
 const pageStyle: CSSProperties = {
-  minHeight: "100dvh",
-  paddingBottom: 86,
+  height: "100dvh",
+  overflow: "hidden",
+  paddingBottom: 76,
 };
 
 const screenStyle: CSSProperties = {
+  height: "calc(100dvh - 76px)",
   maxWidth: 560,
   margin: "0 auto",
-  padding: 12,
+  padding: "8px 10px",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
 };
 
 const headerStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "44px 1fr 54px",
+  gridTemplateColumns: "42px 1fr 50px",
   alignItems: "center",
   gap: 8,
-  marginBottom: 12,
+  marginBottom: 7,
+  flex: "0 0 auto",
 };
 
 const menuButtonStyle: CSSProperties = {
   border: 0,
   background: "transparent",
-  fontSize: 32,
+  fontSize: 31,
   fontWeight: 900,
 };
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "clamp(20px,5vw,28px)",
+  fontSize: "clamp(21px,5.3vw,28px)",
   fontWeight: 950,
-  lineHeight: 1.1,
+  lineHeight: 1.05,
 };
 
 const subtitleStyle: CSSProperties = {
   marginTop: 3,
   fontSize: 15,
-  fontWeight: 700,
+  fontWeight: 800,
 };
 
 const themeButtonStyle: CSSProperties = {
-  height: 46,
+  height: 44,
   borderRadius: 14,
   border: "1px solid",
-  fontSize: 22,
+  fontSize: 21,
 };
 
 const cardStyle: CSSProperties = {
   border: "1px solid",
   borderRadius: 18,
-  padding: 14,
-  marginBottom: 12,
+  padding: 10,
+  marginBottom: 8,
   boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
+  flex: "0 0 auto",
+};
+
+const smallCardStyle: CSSProperties = {
+  border: "1px solid",
+  borderRadius: 18,
+  padding: 10,
+  marginBottom: 8,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
+  flex: "0 0 auto",
+};
+
+const rulesCardStyle: CSSProperties = {
+  border: "1px solid",
+  borderRadius: 18,
+  padding: 10,
+  marginBottom: 8,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
+  flex: "1 1 auto",
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
 };
 
 const cardTitleRowStyle: CSSProperties = {
@@ -584,13 +650,14 @@ const cardTitleRowStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "space-between",
   gap: 8,
-  marginBottom: 10,
+  marginBottom: 8,
 };
 
 const cardTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "clamp(16px,4vw,20px)",
+  fontSize: "clamp(15px,4vw,19px)",
   fontWeight: 950,
+  lineHeight: 1.1,
 };
 
 const onlineBadgeStyle: CSSProperties = {
@@ -609,34 +676,34 @@ const statusGridStyle: CSSProperties = {
 const statusItemStyle: CSSProperties = {
   textAlign: "center",
   borderLeft: "1px solid",
-  padding: "4px 2px",
+  padding: "2px 2px",
 };
 
 const statusIconStyle: CSSProperties = {
-  fontSize: 26,
+  fontSize: 23,
   lineHeight: 1,
 };
 
 const statusLabelStyle: CSSProperties = {
-  marginTop: 6,
-  fontSize: 11,
+  marginTop: 4,
+  fontSize: 10,
   fontWeight: 800,
 };
 
 const statusValueStyle: CSSProperties = {
-  marginTop: 5,
-  fontSize: "clamp(14px,4vw,20px)",
+  marginTop: 4,
+  fontSize: "clamp(13px,3.8vw,18px)",
   fontWeight: 950,
 };
 
 const simpleRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 80px 34px",
+  gridTemplateColumns: "1fr 72px 28px",
   alignItems: "center",
-  gap: 8,
-  padding: "9px 0",
+  gap: 7,
+  padding: "6px 0",
   borderBottom: "1px solid rgba(148,163,184,0.22)",
-  fontWeight: 750,
+  fontWeight: 800,
 };
 
 const smallInputStyle: CSSProperties = {
@@ -644,8 +711,8 @@ const smallInputStyle: CSSProperties = {
   boxSizing: "border-box",
   border: "1px solid",
   borderRadius: 10,
-  padding: "8px 10px",
-  fontSize: 16,
+  padding: "6px 8px",
+  fontSize: 15,
   fontWeight: 900,
   textAlign: "center",
 };
@@ -654,33 +721,37 @@ const rulesBoxStyle: CSSProperties = {
   border: "1px solid",
   borderRadius: 14,
   overflow: "hidden",
+  flex: "1 1 auto",
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
+  marginTop: 8,
 };
 
 const rulesHeaderStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "48px 1fr 1fr",
-  padding: "10px 6px",
+  gridTemplateColumns: "42px 1fr 1fr",
+  padding: "8px 6px",
   borderBottom: "1px solid",
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 950,
   textAlign: "center",
-  position: "sticky",
-  top: 0,
-  zIndex: 2,
+  flex: "0 0 auto",
 };
 
 const rulesScrollStyle: CSSProperties = {
-  maxHeight: "42dvh",
+  flex: "1 1 auto",
+  minHeight: 0,
   overflowY: "auto",
   WebkitOverflowScrolling: "touch",
 };
 
 const rulesRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "48px 1fr 1fr",
+  gridTemplateColumns: "42px 1fr 1fr",
   alignItems: "center",
-  gap: 6,
-  padding: "6px",
+  gap: 5,
+  padding: "4px 6px",
   borderBottom: "1px solid",
 };
 
@@ -689,7 +760,7 @@ const tableInputStyle: CSSProperties = {
   boxSizing: "border-box",
   border: "1px solid",
   borderRadius: 9,
-  padding: "8px 6px",
+  padding: "6px 5px",
   fontSize: 15,
   fontWeight: 850,
   textAlign: "center",
@@ -700,15 +771,16 @@ const buttonsRowStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, 1fr)",
   gap: 8,
-  marginBottom: 12,
+  marginTop: 1,
+  flex: "0 0 auto",
 };
 
 const actionButtonStyle: CSSProperties = {
   border: 0,
   borderRadius: 13,
-  padding: "13px 6px",
+  padding: "11px 4px",
   color: "white",
-  fontSize: "clamp(12px,3.3vw,15px)",
+  fontSize: "clamp(11px,3.1vw,14px)",
   fontWeight: 950,
 };
 
@@ -722,7 +794,7 @@ const bottomNavStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4, 1fr)",
   borderTop: "1px solid",
-  padding: "8px 4px 10px",
+  padding: "7px 4px 9px",
   zIndex: 50,
 };
 
