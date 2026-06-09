@@ -1,33 +1,56 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
-type Row = {
-  temp: string;
-  percent: string;
+type Row = { temp: string; percent: string };
+
+type Sensor = {
+  id: number;
+  temp: number;
+  humidity: number;
+  rpm: number;
+  mode: string;
+  online: boolean;
+  wifiLevel?: number;
+  wifi_level?: number;
 };
 
 const EMPTY_ROWS = 50;
 
+const sensorNames: Record<string, string> = {
+  "1": "Опорос",
+  "2": "Супорос 1",
+  "3": "Супорос 2",
+  "4": "Супорос 3",
+  "5": "Відгодівля",
+  "6": "Карантин",
+  "7": "Подвірʼя",
+};
+
 export default function FanSettingsPage() {
   const { id } = useParams();
+  const deviceId = String(id ?? "1");
 
+  const [dark, setDark] = useState(false);
   const [startupSeconds, setStartupSeconds] = useState("20");
   const [startupPercent, setStartupPercent] = useState("50");
-  const [previewTemp, setPreviewTemp] = useState("23");
-
   const [rows, setRows] = useState<Row[]>(
     Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" }))
   );
 
+  const [sensor, setSensor] = useState<Sensor | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const theme = dark ? darkTheme : lightTheme;
+
   useEffect(() => {
-    async function load() {
+    async function loadProfile() {
       try {
-        const res = await fetch(`/api/fan-profiles?device_id=${id}`, {
+        const res = await fetch(`/api/fan-profiles?device_id=${deviceId}`, {
           cache: "no-store",
         });
 
@@ -41,12 +64,8 @@ export default function FanSettingsPage() {
         setRows(
           Array.from({ length: EMPTY_ROWS }, (_, i) => {
             const rule = apiRules[i];
-
             return rule
-              ? {
-                  temp: String(rule.temp),
-                  percent: String(rule.percent),
-                }
+              ? { temp: String(rule.temp), percent: String(rule.percent) }
               : { temp: "", percent: "" };
           })
         );
@@ -58,8 +77,34 @@ export default function FanSettingsPage() {
       }
     }
 
-    load();
-  }, [id]);
+    loadProfile();
+  }, [deviceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStatus() {
+      try {
+        const res = await fetch("/api/home-summary", { cache: "no-store" });
+        const data = await res.json();
+        const found = (data.sensors ?? []).find(
+          (s: Sensor) => Number(s.id) === Number(deviceId)
+        );
+
+        if (!cancelled) setSensor(found ?? null);
+      } catch {
+        if (!cancelled) setSensor(null);
+      }
+    }
+
+    loadStatus();
+    const timer = setInterval(loadStatus, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [deviceId]);
 
   function updateRow(index: number, field: "temp" | "percent", value: string) {
     const next = [...rows];
@@ -73,20 +118,20 @@ export default function FanSettingsPage() {
 
   function setDefault() {
     const defaults: Row[] = [
-      { temp: "17", percent: "15" },
-      { temp: "18", percent: "20" },
-      { temp: "19", percent: "25" },
-      { temp: "20", percent: "30" },
+      { temp: "17", percent: "20" },
+      { temp: "18", percent: "25" },
+      { temp: "19", percent: "30" },
+      { temp: "20", percent: "33" },
       { temp: "21", percent: "35" },
-      { temp: "22", percent: "40" },
-      { temp: "23", percent: "50" },
-      { temp: "24", percent: "55" },
-      { temp: "25", percent: "60" },
-      { temp: "26", percent: "70" },
-      { temp: "27", percent: "75" },
+      { temp: "22", percent: "37" },
+      { temp: "23", percent: "45" },
+      { temp: "24", percent: "47" },
+      { temp: "25", percent: "50" },
+      { temp: "26", percent: "60" },
+      { temp: "27", percent: "70" },
       { temp: "28", percent: "80" },
-      { temp: "29", percent: "90" },
-      { temp: "30", percent: "100" },
+      { temp: "29", percent: "84" },
+      { temp: "30", percent: "85" },
     ];
 
     setRows(
@@ -96,31 +141,29 @@ export default function FanSettingsPage() {
     );
   }
 
-  function getPreviewRule() {
-    const temp = Number(previewTemp);
-    if (Number.isNaN(temp)) return null;
+  const activeRuleIndex = useMemo(() => {
+    const currentTemp = Number(sensor?.temp ?? 0);
+    if (!sensor?.online || Number.isNaN(currentTemp)) return -1;
 
-    const validRules = rows
-      .filter((r) => r.temp.trim() !== "" && r.percent.trim() !== "")
-      .map((r) => ({
-        temp: Number(r.temp),
-        percent: Number(r.percent),
-      }))
-      .filter((r) => !Number.isNaN(r.temp) && !Number.isNaN(r.percent))
-      .sort((a, b) => a.temp - b.temp);
+    let active = -1;
 
-    if (validRules.length === 0) return null;
+    rows.forEach((row, index) => {
+      const temp = Number(row.temp);
+      const percent = Number(row.percent);
 
-    let active = validRules[0];
-
-    for (const rule of validRules) {
-      if (temp >= rule.temp) {
-        active = rule;
+      if (
+        row.temp.trim() !== "" &&
+        row.percent.trim() !== "" &&
+        !Number.isNaN(temp) &&
+        !Number.isNaN(percent) &&
+        currentTemp >= temp
+      ) {
+        active = index;
       }
-    }
+    });
 
     return active;
-  }
+  }, [rows, sensor]);
 
   function validate() {
     const sec = Number(startupSeconds);
@@ -204,11 +247,9 @@ export default function FanSettingsPage() {
     try {
       const res = await fetch("/api/fan-profiles", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          device_id: Number(id),
+          device_id: Number(deviceId),
           startup_seconds: Number(startupSeconds),
           startup_percent: Number(startupPercent),
           rules: validRows,
@@ -231,290 +272,463 @@ export default function FanSettingsPage() {
     }
   }
 
-  const previewRule = getPreviewRule();
-
   if (loading) {
     return (
-      <main style={pageStyle}>
-        <div style={{ maxWidth: 980, margin: "0 auto" }}>Завантаження...</div>
+      <main style={{ ...pageStyle, background: theme.bg, color: theme.text }}>
+        <div style={screenStyle}>Завантаження...</div>
       </main>
     );
   }
 
+  const wifiLevel = sensor?.wifiLevel ?? sensor?.wifi_level ?? 0;
+  const fanValue =
+    sensor?.mode === "manual" ? "Ручне" : `${Math.round(sensor?.rpm ?? 0)}%`;
+
   return (
-    <main style={pageStyle}>
-      <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 32, marginBottom: 20 }}>
-          Налаштування вентилятора — комп’ютер {id}
-        </h1>
+    <main style={{ ...pageStyle, background: theme.bg, color: theme.text }}>
+      <div style={screenStyle}>
+        <header style={headerStyle}>
+          <button style={{ ...menuButtonStyle, color: theme.text }}>☰</button>
 
-        <section style={infoStyle}>
-          <h2 style={titleStyle}>Як працює керування</h2>
-
-          <p>
-            Комп’ютер читає температуру і сам виставляє потужність вентилятора.
-            Кожен рядок означає:
-          </p>
-
-          <div style={formulaStyle}>
-            якщо температура ≥ заданого значення → встановити цей % вентилятора
-          </div>
-
-          <p>
-            Система бере останнє правило, яке підходить по температурі.
-            Наприклад:
-          </p>
-
-          <div style={exampleStyle}>
-            ≥ 20°C → 30%
-            <br />
-            ≥ 24°C → 55%
-            <br />
-            ≥ 28°C → 80%
-          </div>
-
-          <p>
-            Якщо температура буде 26°C — спрацює правило ≥ 24°C, тобто
-            вентилятор буде працювати на 55%.
-          </p>
-        </section>
-
-        <section style={cardStyle}>
-          <h2 style={titleStyle}>Перший запуск при зміні правил</h2>
-
-          <p style={{ opacity: 0.85 }}>
-            Цей запуск використовується тоді, коли ти натискаєш “Зберегти”
-            і ESP32 отримує нові правила з сайту.
-          </p>
-
-          <div style={startGridStyle}>
-            <label>
-              <div style={labelStyle}>Час роботи, секунд</div>
-              <input
-                value={startupSeconds}
-                onChange={(e) => setStartupSeconds(e.target.value)}
-                style={inputStyle}
-                inputMode="numeric"
-              />
-            </label>
-
-            <label>
-              <div style={labelStyle}>Потужність вентилятора, %</div>
-              <input
-                value={startupPercent}
-                onChange={(e) => setStartupPercent(e.target.value)}
-                style={inputStyle}
-                inputMode="numeric"
-              />
-            </label>
-          </div>
-        </section>
-
-        <section style={infoStyle}>
-          <h2 style={titleStyle}>Перевірка правила</h2>
-
-          <p>Введи температуру, і сайт покаже, яке правило спрацює.</p>
-
-          <div style={{ maxWidth: 220 }}>
-            <div style={labelStyle}>Температура для перевірки, °C</div>
-            <input
-              value={previewTemp}
-              onChange={(e) => setPreviewTemp(e.target.value)}
-              style={inputStyle}
-              inputMode="decimal"
-              placeholder="Напр. 23"
-            />
-          </div>
-
-          <div style={previewBoxStyle}>
-            {previewRule ? (
-              <>
-                При температурі <b>{previewTemp}°C</b> спрацює правило{" "}
-                <b>≥ {previewRule.temp}°C</b>, вентилятор буде працювати на{" "}
-                <b>{previewRule.percent}%</b>.
-              </>
-            ) : (
-              <>Заповни правила, щоб побачити результат.</>
-            )}
-          </div>
-        </section>
-
-        <section style={cardStyle}>
-          <h2 style={titleStyle}>Правила керування температурою</h2>
-
-          <p style={{ opacity: 0.85 }}>
-            Заповнюй рядки зверху вниз. Температури мають іти по зростанню.
-            Порожні рядки ігноруються. Максимум — 50 правил.
-          </p>
-
-          <div style={tableHeaderStyle}>
-            <div>№</div>
-            <div>Температура ≥, °C</div>
-            <div>Вентилятор, %</div>
-          </div>
-
-          {rows.map((row, i) => (
-            <div key={i} style={tableRowStyle}>
-              <div style={{ opacity: 0.75 }}>{i + 1}</div>
-
-              <input
-                value={row.temp}
-                onChange={(e) => updateRow(i, "temp", e.target.value)}
-                placeholder="Напр. 22"
-                style={inputStyle}
-                inputMode="decimal"
-              />
-
-              <input
-                value={row.percent}
-                onChange={(e) => updateRow(i, "percent", e.target.value)}
-                placeholder="15–100"
-                style={inputStyle}
-                inputMode="numeric"
-              />
+          <div>
+            <h1 style={titleStyle}>Керування вентиляцією</h1>
+            <div style={{ ...subtitleStyle, color: theme.muted }}>
+              {sensorNames[deviceId] ?? `Компʼютер ${deviceId}`}
             </div>
-          ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setDark((v) => !v)}
+            style={{
+              ...themeButtonStyle,
+              background: theme.card,
+              color: theme.text,
+              borderColor: theme.border,
+            }}
+          >
+            {dark ? "🌙" : "☀️"}
+          </button>
+        </header>
+
+        <section style={{ ...cardStyle, background: theme.card, borderColor: theme.border }}>
+          <div style={cardTitleRowStyle}>
+            <h2 style={cardTitleStyle}>Стан компʼютера</h2>
+            <span
+              style={{
+                ...onlineBadgeStyle,
+                background: sensor?.online ? "rgba(22,163,74,0.16)" : "rgba(220,38,38,0.14)",
+                color: sensor?.online ? "#16a34a" : "#dc2626",
+              }}
+            >
+              ● {sensor?.online ? "Онлайн" : "Офлайн"}
+            </span>
+          </div>
+
+          <div style={statusGridStyle}>
+            <StatusItem icon="📶" label="Wi-Fi" value={`${wifiLevel}/10`} theme={theme} />
+            <StatusItem icon="🌡" label="Температура" value={`${Number(sensor?.temp ?? 0).toFixed(1)}°C`} theme={theme} />
+            <StatusItem icon="💧" label="Вологість" value={`${Number(sensor?.humidity ?? 0).toFixed(0)}%`} theme={theme} />
+            <StatusItem icon="🌀" label="Вентилятор" value={fanValue} theme={theme} />
+          </div>
+        </section>
+
+        <section style={{ ...cardStyle, background: theme.card, borderColor: theme.border }}>
+          <h2 style={cardTitleStyle}>⚡ Перший запуск після зміни правил</h2>
+
+          <div style={simpleRowStyle}>
+            <span>Час роботи</span>
+            <input
+              value={startupSeconds}
+              onChange={(e) => setStartupSeconds(e.target.value)}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              inputMode="numeric"
+            />
+            <b>сек</b>
+          </div>
+
+          <div style={simpleRowStyle}>
+            <span>Потужність вентилятора</span>
+            <input
+              value={startupPercent}
+              onChange={(e) => setStartupPercent(e.target.value)}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              inputMode="numeric"
+            />
+            <b>%</b>
+          </div>
+        </section>
+
+        <section style={{ ...cardStyle, background: theme.card, borderColor: theme.border }}>
+          <h2 style={cardTitleStyle}>Правила керування вентилятором (50)</h2>
+
+          <div style={{ ...rulesBoxStyle, borderColor: theme.border }}>
+            <div
+              style={{
+                ...rulesHeaderStyle,
+                background: theme.header,
+                borderColor: theme.border,
+              }}
+            >
+              <div>№</div>
+              <div>Температура ≥, °C</div>
+              <div>Вентилятор, %</div>
+            </div>
+
+            <div style={rulesScrollStyle}>
+              {rows.map((row, i) => {
+                const active = i === activeRuleIndex;
+
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      ...rulesRowStyle,
+                      background: active ? "rgba(22,163,74,0.22)" : "transparent",
+                      borderColor: theme.border,
+                    }}
+                  >
+                    <div style={{ fontWeight: 900, color: active ? "#22c55e" : theme.text }}>
+                      {i + 1}
+                    </div>
+
+                    <input
+                      value={row.temp}
+                      onChange={(e) => updateRow(i, "temp", e.target.value)}
+                      placeholder="Напр. 22"
+                      style={{
+                        ...tableInputStyle,
+                        background: theme.input,
+                        color: theme.text,
+                        borderColor: active ? "#22c55e" : theme.border,
+                      }}
+                      inputMode="decimal"
+                    />
+
+                    <input
+                      value={row.percent}
+                      onChange={(e) => updateRow(i, "percent", e.target.value)}
+                      placeholder="15–100"
+                      style={{
+                        ...tableInputStyle,
+                        background: theme.input,
+                        color: theme.text,
+                        borderColor: active ? "#22c55e" : theme.border,
+                      }}
+                      inputMode="numeric"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </section>
 
         <div style={buttonsRowStyle}>
-          <button
-            onClick={clearAll}
-            style={{ ...buttonStyle, background: "#a83232" }}
-          >
-            Очистити
+          <button onClick={clearAll} style={{ ...actionButtonStyle, background: "#dc2626" }}>
+            🗑 Очистити
           </button>
 
-          <button
-            onClick={setDefault}
-            style={{ ...buttonStyle, background: "#2563eb" }}
-          >
-            Заводські налаштування
+          <button onClick={setDefault} style={{ ...actionButtonStyle, background: "#2563eb" }}>
+            ↻ Заводські
           </button>
 
           <button
             onClick={save}
             disabled={saving}
             style={{
-              ...buttonStyle,
+              ...actionButtonStyle,
               background: saving ? "#64748b" : "#16a34a",
             }}
           >
-            {saving ? "Збереження..." : "Зберегти"}
+            💾 {saving ? "Збереження..." : "Зберегти"}
           </button>
         </div>
       </div>
+
+      <nav style={{ ...bottomNavStyle, background: theme.nav, borderColor: theme.border }}>
+        <BottomLink href="/" icon="⌂" text="Головна" active={false} theme={theme} />
+        <BottomLink href={`/chart/${deviceId}`} icon="▥" text="Графік" active={false} theme={theme} />
+        <BottomLink href={`/fan-settings/${deviceId}`} icon="☷" text="Керування" active theme={theme} />
+        <BottomLink href={`/disconnects/${deviceId}`} icon="⚡" text="Відключення" active={false} theme={theme} />
+      </nav>
     </main>
   );
 }
 
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  background: "#0c1630",
-  color: "white",
-  padding: 16,
+function StatusItem({
+  icon,
+  label,
+  value,
+  theme,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  theme: typeof lightTheme;
+}) {
+  return (
+    <div style={{ ...statusItemStyle, borderColor: theme.border }}>
+      <div style={statusIconStyle}>{icon}</div>
+      <div style={{ ...statusLabelStyle, color: theme.muted }}>{label}</div>
+      <div style={statusValueStyle}>{value}</div>
+    </div>
+  );
+}
+
+function BottomLink({
+  href,
+  icon,
+  text,
+  active,
+  theme,
+}: {
+  href: string;
+  icon: string;
+  text: string;
+  active: boolean;
+  theme: typeof lightTheme;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        ...bottomLinkStyle,
+        color: active ? "#2563eb" : theme.muted,
+      }}
+    >
+      <div style={{ fontSize: 25, lineHeight: 1 }}>{icon}</div>
+      <div>{text}</div>
+    </Link>
+  );
+}
+
+const lightTheme = {
+  bg: "#f8fafc",
+  card: "#ffffff",
+  nav: "#ffffff",
+  text: "#0f172a",
+  muted: "#64748b",
+  border: "#e5e7eb",
+  input: "#ffffff",
+  header: "#f1f5f9",
 };
 
-const cardStyle: React.CSSProperties = {
-  background: "#10214f",
-  padding: 18,
-  borderRadius: 20,
-  marginBottom: 20,
+const darkTheme = {
+  bg: "#07111f",
+  card: "rgba(15, 23, 42, 0.92)",
+  nav: "rgba(15, 23, 42, 0.96)",
+  text: "#f8fafc",
+  muted: "#cbd5e1",
+  border: "rgba(148,163,184,0.22)",
+  input: "rgba(15,23,42,0.85)",
+  header: "rgba(30,41,59,0.7)",
 };
 
-const infoStyle: React.CSSProperties = {
-  background: "#12306b",
-  padding: 18,
-  borderRadius: 20,
-  marginBottom: 20,
-  lineHeight: 1.5,
+const pageStyle: CSSProperties = {
+  minHeight: "100dvh",
+  paddingBottom: 86,
 };
 
-const titleStyle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 16,
-  fontSize: 22,
-};
-
-const formulaStyle: React.CSSProperties = {
-  margin: "12px 0",
-  padding: 14,
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.1)",
-  fontWeight: 800,
-};
-
-const exampleStyle: React.CSSProperties = {
-  marginTop: 12,
-  marginBottom: 12,
+const screenStyle: CSSProperties = {
+  maxWidth: 560,
+  margin: "0 auto",
   padding: 12,
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.08)",
+};
+
+const headerStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "44px 1fr 54px",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 12,
+};
+
+const menuButtonStyle: CSSProperties = {
+  border: 0,
+  background: "transparent",
+  fontSize: 32,
+  fontWeight: 900,
+};
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "clamp(20px,5vw,28px)",
+  fontWeight: 950,
+  lineHeight: 1.1,
+};
+
+const subtitleStyle: CSSProperties = {
+  marginTop: 3,
+  fontSize: 15,
   fontWeight: 700,
 };
 
-const previewBoxStyle: React.CSSProperties = {
-  marginTop: 14,
-  padding: 14,
+const themeButtonStyle: CSSProperties = {
+  height: 46,
   borderRadius: 14,
-  background: "rgba(22,163,74,0.18)",
-  border: "1px solid rgba(74,222,128,0.35)",
-  fontSize: 16,
+  border: "1px solid",
+  fontSize: 22,
 };
 
-const labelStyle: React.CSSProperties = {
-  marginBottom: 6,
-  fontSize: 14,
-  opacity: 0.85,
+const cardStyle: CSSProperties = {
+  border: "1px solid",
+  borderRadius: 18,
+  padding: 14,
+  marginBottom: 12,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
 };
 
-const startGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 14,
-};
-
-const tableHeaderStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "60px 1fr 1fr",
-  gap: 10,
-  padding: "10px 0",
-  fontWeight: 800,
-  opacity: 0.9,
-};
-
-const tableRowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "60px 1fr 1fr",
-  gap: 10,
+const cardTitleRowStyle: CSSProperties = {
+  display: "flex",
   alignItems: "center",
-  marginBottom: 8,
+  justifyContent: "space-between",
+  gap: 8,
+  marginBottom: 10,
 };
 
-const inputStyle: React.CSSProperties = {
+const cardTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "clamp(16px,4vw,20px)",
+  fontWeight: 950,
+};
+
+const onlineBadgeStyle: CSSProperties = {
+  padding: "4px 9px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const statusGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, 1fr)",
+};
+
+const statusItemStyle: CSSProperties = {
+  textAlign: "center",
+  borderLeft: "1px solid",
+  padding: "4px 2px",
+};
+
+const statusIconStyle: CSSProperties = {
+  fontSize: 26,
+  lineHeight: 1,
+};
+
+const statusLabelStyle: CSSProperties = {
+  marginTop: 6,
+  fontSize: 11,
+  fontWeight: 800,
+};
+
+const statusValueStyle: CSSProperties = {
+  marginTop: 5,
+  fontSize: "clamp(14px,4vw,20px)",
+  fontWeight: 950,
+};
+
+const simpleRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 80px 34px",
+  alignItems: "center",
+  gap: 8,
+  padding: "9px 0",
+  borderBottom: "1px solid rgba(148,163,184,0.22)",
+  fontWeight: 750,
+};
+
+const smallInputStyle: CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
-  padding: "12px 14px",
-  borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.18)",
-  background: "#0b183d",
-  color: "white",
+  border: "1px solid",
+  borderRadius: 10,
+  padding: "8px 10px",
   fontSize: 16,
+  fontWeight: 900,
+  textAlign: "center",
+};
+
+const rulesBoxStyle: CSSProperties = {
+  border: "1px solid",
+  borderRadius: 14,
+  overflow: "hidden",
+};
+
+const rulesHeaderStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "48px 1fr 1fr",
+  padding: "10px 6px",
+  borderBottom: "1px solid",
+  fontSize: 13,
+  fontWeight: 950,
+  textAlign: "center",
+  position: "sticky",
+  top: 0,
+  zIndex: 2,
+};
+
+const rulesScrollStyle: CSSProperties = {
+  maxHeight: "42dvh",
+  overflowY: "auto",
+  WebkitOverflowScrolling: "touch",
+};
+
+const rulesRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "48px 1fr 1fr",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px",
+  borderBottom: "1px solid",
+};
+
+const tableInputStyle: CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  border: "1px solid",
+  borderRadius: 9,
+  padding: "8px 6px",
+  fontSize: 15,
+  fontWeight: 850,
+  textAlign: "center",
   outline: "none",
 };
 
-const buttonsRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 12,
-  flexWrap: "wrap",
-  paddingBottom: 40,
+const buttonsRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, 1fr)",
+  gap: 8,
+  marginBottom: 12,
 };
 
-const buttonStyle: React.CSSProperties = {
+const actionButtonStyle: CSSProperties = {
   border: 0,
-  borderRadius: 14,
-  padding: "14px 18px",
+  borderRadius: 13,
+  padding: "13px 6px",
   color: "white",
-  fontWeight: 800,
-  fontSize: 16,
-  cursor: "pointer",
+  fontSize: "clamp(12px,3.3vw,15px)",
+  fontWeight: 950,
+};
+
+const bottomNavStyle: CSSProperties = {
+  position: "fixed",
+  left: 0,
+  right: 0,
+  bottom: 0,
+  maxWidth: 560,
+  margin: "0 auto",
+  display: "grid",
+  gridTemplateColumns: "repeat(4, 1fr)",
+  borderTop: "1px solid",
+  padding: "8px 4px 10px",
+  zIndex: 50,
+};
+
+const bottomLinkStyle: CSSProperties = {
+  textAlign: "center",
+  textDecoration: "none",
+  fontSize: 12,
+  fontWeight: 850,
 };
