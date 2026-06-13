@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { Pool } from "pg";
 
-// ================= DB =================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
 });
@@ -14,13 +13,9 @@ const ZADARMA_SECRET = process.env.ZADARMA_SECRET;
 const FROM = "100";
 const SIP = "100";
 
-const PHONES = [
-  "380668954751",
-
-];
+const PHONES = ["380668954751"];
 
 // ================= SETTINGS =================
-const DEVICE_ID = "1";
 const OFFLINE_AFTER_MINUTES = 5;
 
 // ================= HELPERS =================
@@ -33,7 +28,7 @@ function buildQuery(params: Record<string, string>) {
 
 function generateSignature(method: string, paramsString: string) {
   if (!ZADARMA_SECRET) {
-    throw new Error("Missing ZADARMA_SECRET in Vercel Environment Variables");
+    throw new Error("Missing ZADARMA_SECRET");
   }
 
   const md5 = crypto.createHash("md5").update(paramsString).digest("hex");
@@ -48,7 +43,7 @@ function generateSignature(method: string, paramsString: string) {
 
 async function zadarmaCall(to: string) {
   if (!ZADARMA_KEY) {
-    throw new Error("Missing ZADARMA_KEY in Vercel Environment Variables");
+    throw new Error("Missing ZADARMA_KEY");
   }
 
   const method = "/v1/request/callback/";
@@ -81,114 +76,139 @@ async function zadarmaCall(to: string) {
 // ================= MAIN =================
 export async function GET() {
   try {
-    const tempResult = await pool.query(
-      `
-      SELECT created_at
+    // 1. Беремо всі ESP, які хоч раз передавали температуру
+    const devicesResult = await pool.query(`
+      SELECT
+        device_id,
+        MAX(created_at) AS last_seen_at
       FROM temperature_logs
-      WHERE device_id = $1
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      [DEVICE_ID]
-    );
+      GROUP BY device_id
+      ORDER BY CAST(device_id AS INTEGER)
+    `);
 
-    if (tempResult.rows.length === 0) {
+    if (devicesResult.rows.length === 0) {
       return NextResponse.json({
-        ok: false,
+        ok: true,
         alert: false,
-        error: "No data from sensor",
+        message: "No devices registered yet",
+        checkedDevices: 0,
       });
     }
 
-    const lastTime = new Date(tempResult.rows[0].created_at);
     const now = new Date();
+    const results = [];
+    let callWasSent = false;
+    let calledForDevice: string | null = null;
+    let callResults: any[] = [];
 
-    const diffMinutes = (now.getTime() - lastTime.getTime()) / 1000 / 60;
+    for (const row of devicesResult.rows) {
+      const deviceId = String(row.device_id);
+      const lastSeenAt = new Date(row.last_seen_at);
 
-    await pool.query(
-      `
-      INSERT INTO alert_state (device_id, alert_sent)
-      VALUES ($1, false)
-      ON CONFLICT (device_id) DO NOTHING
-      `,
-      [DEVICE_ID]
-    );
+      const diffMinutes =
+        (now.getTime() - lastSeenAt.getTime()) / 1000 / 60;
 
-    const stateResult = await pool.query(
-      `
-      SELECT alert_sent
-      FROM alert_state
-      WHERE device_id = $1
-      `,
-      [DEVICE_ID]
-    );
+      // 2. Створюємо стан для нового ESP автоматично
+      await pool.query(
+        `
+        INSERT INTO alert_state (device_id, alert_sent, updated_at)
+        VALUES ($1, false, NOW())
+        ON CONFLICT (device_id) DO NOTHING
+        `,
+        [deviceId]
+      );
 
-    const alertSent = stateResult.rows[0]?.alert_sent === true;
+      const stateResult = await pool.query(
+        `
+        SELECT alert_sent
+        FROM alert_state
+        WHERE device_id = $1
+        `,
+        [deviceId]
+      );
 
-    // Якщо сенсор онлайн — скидаємо антиспам
-    if (diffMinutes <= OFFLINE_AFTER_MINUTES) {
+      const alertSent = stateResult.rows[0]?.alert_sent === true;
+
+      // 3. Якщо ESP онлайн — скидаємо антиспам
+      if (diffMinutes <= OFFLINE_AFTER_MINUTES) {
+        await pool.query(
+          `
+          UPDATE alert_state
+          SET alert_sent = false,
+              updated_at = NOW()
+          WHERE device_id = $1
+          `,
+          [deviceId]
+        );
+
+        results.push({
+          deviceId,
+          online: true,
+          alertSent: false,
+          diffMinutes,
+          lastSeenAt: lastSeenAt.toISOString(),
+        });
+
+        continue;
+      }
+
+      // 4. ESP офлайн, але по ньому вже дзвонили — більше не дзвонимо
+      if (alertSent) {
+        results.push({
+          deviceId,
+          online: false,
+          alertAlreadySent: true,
+          diffMinutes,
+          lastSeenAt: lastSeenAt.toISOString(),
+        });
+
+        continue;
+      }
+
+      // 5. ESP офлайн > 5 хв і ще не дзвонили
+      // Дзвонимо тільки один раз за запуск цієї перевірки
+      if (!callWasSent) {
+        for (const phone of PHONES) {
+          const callResult = await zadarmaCall(phone);
+
+          callResults.push({
+            phone,
+            result: callResult,
+          });
+        }
+
+        callWasSent = true;
+        calledForDevice = deviceId;
+      }
+
+      // 6. По цьому ESP ставимо, що дзвінок вже був
       await pool.query(
         `
         UPDATE alert_state
-        SET alert_sent = false,
+        SET alert_sent = true,
             updated_at = NOW()
         WHERE device_id = $1
         `,
-        [DEVICE_ID]
+        [deviceId]
       );
 
-      return NextResponse.json({
-        ok: true,
-        alert: false,
-        sensorOnline: true,
-        message: "Sensor online. Alert state reset.",
+      results.push({
+        deviceId,
+        online: false,
+        callSent: !alertSent && calledForDevice === deviceId,
         diffMinutes,
-        lastSensorTime: lastTime.toISOString(),
+        lastSeenAt: lastSeenAt.toISOString(),
       });
     }
-
-    // Якщо вже дзвонили під час цієї аварії — більше не дзвонимо
-    if (alertSent) {
-      return NextResponse.json({
-        ok: true,
-        alert: true,
-        callSkipped: true,
-        reason: "Alert already sent for this outage session",
-        diffMinutes,
-        lastSensorTime: lastTime.toISOString(),
-      });
-    }
-
-    // Якщо сенсор офлайн більше 5 хв і ще не дзвонили — дзвонимо
-    const callResults = [];
-
-    for (const phone of PHONES) {
-      const result = await zadarmaCall(phone);
-
-      callResults.push({
-        phone,
-        result,
-      });
-    }
-
-    await pool.query(
-      `
-      UPDATE alert_state
-      SET alert_sent = true,
-          updated_at = NOW()
-      WHERE device_id = $1
-      `,
-      [DEVICE_ID]
-    );
 
     return NextResponse.json({
       ok: true,
-      alert: true,
-      callSent: true,
-      message: "Sensor offline more than 5 minutes. Calls sent once.",
-      diffMinutes,
-      lastSensorTime: lastTime.toISOString(),
+      alert: callWasSent,
+      callSent: callWasSent,
+      calledForDevice,
+      checkedDevices: devicesResult.rows.length,
       callResults,
+      devices: results,
     });
   } catch (e) {
     return NextResponse.json(
