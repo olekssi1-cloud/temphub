@@ -28,6 +28,8 @@ export async function GET(request: NextRequest) {
     const wifiRssiRaw =
       searchParams.get("wifi_rssi") || searchParams.get("wifiRssi");
 
+    const coolingRaw = searchParams.get("cooling");
+
     const deviceIdRaw =
       searchParams.get("device_id") ||
       searchParams.get("deviceId") ||
@@ -65,6 +67,11 @@ export async function GET(request: NextRequest) {
         ? Math.round(Number(wifiRssiRaw))
         : null;
 
+    const cooling =
+      coolingRaw !== null && !Number.isNaN(Number(coolingRaw))
+        ? Number(coolingRaw) === 1
+        : null;
+
     const mode = modeRaw === "manual" || modeRaw === "auto" ? modeRaw : "auto";
 
     if (tempRaw !== null && temp === null) {
@@ -73,6 +80,10 @@ export async function GET(request: NextRequest) {
 
     if (wifiLevelRaw !== null && wifiLevel === null) {
       return makeJson({ ok: false, error: "Invalid wifi_level" }, 400);
+    }
+
+    if (coolingRaw !== null && cooling === null) {
+      return makeJson({ ok: false, error: "Invalid cooling" }, 400);
     }
 
     if (temp !== null) {
@@ -87,7 +98,8 @@ export async function GET(request: NextRequest) {
       humidity !== null ||
       mode !== null ||
       wifiLevel !== null ||
-      wifiRssi !== null
+      wifiRssi !== null ||
+      cooling !== null
     ) {
       await sql`
         INSERT INTO motor_live (
@@ -97,6 +109,7 @@ export async function GET(request: NextRequest) {
           mode,
           wifi_level,
           wifi_rssi,
+          cooling,
           updated_at
         )
         VALUES (
@@ -106,6 +119,7 @@ export async function GET(request: NextRequest) {
           ${mode},
           ${wifiLevel},
           ${wifiRssi},
+          ${cooling},
           NOW()
         )
         ON CONFLICT (device_id)
@@ -115,6 +129,7 @@ export async function GET(request: NextRequest) {
           mode = COALESCE(EXCLUDED.mode, motor_live.mode),
           wifi_level = COALESCE(EXCLUDED.wifi_level, motor_live.wifi_level),
           wifi_rssi = COALESCE(EXCLUDED.wifi_rssi, motor_live.wifi_rssi),
+          cooling = COALESCE(EXCLUDED.cooling, motor_live.cooling),
           updated_at = NOW()
       `;
     }
@@ -150,6 +165,7 @@ export async function GET(request: NextRequest) {
       mode,
       wifiLevel,
       wifiRssi,
+      cooling,
     });
   } catch (error) {
     return makeJson(

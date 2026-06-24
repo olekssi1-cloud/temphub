@@ -16,6 +16,7 @@ type Sensor = {
   online: boolean;
   wifiLevel?: number;
   wifi_level?: number;
+  cooling?: boolean;
 };
 
 const EMPTY_ROWS = 50;
@@ -37,6 +38,11 @@ export default function FanSettingsPage() {
   const [dark, setDark] = useState(false);
   const [startupSeconds, setStartupSeconds] = useState("20");
   const [startupPercent, setStartupPercent] = useState("50");
+
+  const [coolingEnabled, setCoolingEnabled] = useState(true);
+  const [coolingOnTemp, setCoolingOnTemp] = useState("26");
+  const [coolingOffTemp, setCoolingOffTemp] = useState("25");
+  const [coolingMinWork, setCoolingMinWork] = useState("5");
   const [rows, setRows] = useState<Row[]>(
     Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" }))
   );
@@ -69,6 +75,18 @@ export default function FanSettingsPage() {
               : { temp: "", percent: "" };
           })
         );
+
+        const coolingRes = await fetch(
+          `/api/cooling-settings?device_id=${deviceId}`,
+          { cache: "no-store" }
+        );
+
+        const cooling = await coolingRes.json();
+
+        setCoolingEnabled(cooling.enabled ?? true);
+        setCoolingOnTemp(String(cooling.on_temp ?? 26));
+        setCoolingOffTemp(String(cooling.off_temp ?? 25));
+        setCoolingMinWork(String(cooling.min_work_minutes ?? 5));
       } catch (error) {
         console.error(error);
         alert("Не вдалося завантажити налаштування");
@@ -230,6 +248,30 @@ export default function FanSettingsPage() {
       return false;
     }
 
+    const coolingOn = Number(coolingOnTemp);
+    const coolingOff = Number(coolingOffTemp);
+    const coolingMin = Number(coolingMinWork);
+
+    if (Number.isNaN(coolingOn) || coolingOn < 0 || coolingOn > 60) {
+      alert("Температура включення охолодження має бути від 0 до 60°C");
+      return false;
+    }
+
+    if (Number.isNaN(coolingOff) || coolingOff < 0 || coolingOff > 60) {
+      alert("Температура виключення охолодження має бути від 0 до 60°C");
+      return false;
+    }
+
+    if (coolingOn <= coolingOff) {
+      alert("Температура включення охолодження має бути більшою за температуру виключення");
+      return false;
+    }
+
+    if (!Number.isInteger(coolingMin) || coolingMin < 0 || coolingMin > 120) {
+      alert("Мінімальний час роботи охолодження має бути від 0 до 120 хв");
+      return false;
+    }
+
     return true;
   }
 
@@ -264,6 +306,25 @@ export default function FanSettingsPage() {
         return;
       }
 
+      const coolingRes = await fetch("/api/cooling-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_id: Number(deviceId),
+          enabled: coolingEnabled,
+          on_temp: Number(coolingOnTemp),
+          off_temp: Number(coolingOffTemp),
+          min_work_minutes: Number(coolingMinWork),
+        }),
+      });
+
+      const coolingData = await coolingRes.json();
+
+      if (!coolingData.ok) {
+        alert(coolingData.error || "Помилка збереження охолодження");
+        return;
+      }
+
       alert("Налаштування збережено ✅");
     } catch (error) {
       console.error(error);
@@ -284,6 +345,7 @@ export default function FanSettingsPage() {
   const wifiLevel = sensor?.wifiLevel ?? sensor?.wifi_level ?? 0;
   const fanValue =
     sensor?.mode === "manual" ? "Ручне" : `${Math.round(sensor?.rpm ?? 0)}%`;
+  const coolingValue = sensor?.cooling ? "ON" : "OFF";
 
   return (
     <main style={{ ...pageStyle, background: theme.bg, color: theme.text }}>
@@ -333,6 +395,7 @@ export default function FanSettingsPage() {
             <StatusItem icon="🌡" label="Темп." value={`${Number(sensor?.temp ?? 0).toFixed(1)}°`} theme={theme} />
             <StatusItem icon="💧" label="Волог." value={`${Number(sensor?.humidity ?? 0).toFixed(0)}%`} theme={theme} />
             <StatusItem icon="🌀" label="Вент." value={fanValue} theme={theme} />
+            <StatusItem icon="❄️" label="Охол." value={coolingValue} theme={theme} />
           </div>
         </section>
 
@@ -369,6 +432,67 @@ export default function FanSettingsPage() {
               inputMode="numeric"
             />
             <b>%</b>
+          </div>
+        </section>
+
+        <section style={{ ...coolingCardStyle, background: theme.card, borderColor: theme.border }}>
+          <h2 style={cardTitleStyle}>❄️ Система охолодження</h2>
+
+          <div style={coolingGridStyle}>
+            <label style={coolingSwitchStyle}>
+              <span>Увімкнено</span>
+              <input
+                type="checkbox"
+                checked={coolingEnabled}
+                onChange={(e) => setCoolingEnabled(e.target.checked)}
+                style={checkboxStyle}
+              />
+            </label>
+
+            <label>
+              <div style={{ ...miniLabelStyle, color: theme.muted }}>Вкл</div>
+              <input
+                value={coolingOnTemp}
+                onChange={(e) => setCoolingOnTemp(e.target.value)}
+                style={{
+                  ...coolingInputStyle,
+                  background: theme.input,
+                  color: theme.text,
+                  borderColor: theme.border,
+                }}
+                inputMode="decimal"
+              />
+            </label>
+
+            <label>
+              <div style={{ ...miniLabelStyle, color: theme.muted }}>Викл</div>
+              <input
+                value={coolingOffTemp}
+                onChange={(e) => setCoolingOffTemp(e.target.value)}
+                style={{
+                  ...coolingInputStyle,
+                  background: theme.input,
+                  color: theme.text,
+                  borderColor: theme.border,
+                }}
+                inputMode="decimal"
+              />
+            </label>
+
+            <label>
+              <div style={{ ...miniLabelStyle, color: theme.muted }}>Хв</div>
+              <input
+                value={coolingMinWork}
+                onChange={(e) => setCoolingMinWork(e.target.value)}
+                style={{
+                  ...coolingInputStyle,
+                  background: theme.input,
+                  color: theme.text,
+                  borderColor: theme.border,
+                }}
+                inputMode="numeric"
+              />
+            </label>
           </div>
         </section>
 
@@ -633,6 +757,57 @@ const smallCardStyle: CSSProperties = {
   flex: "0 0 auto",
 };
 
+const coolingCardStyle: CSSProperties = {
+  border: "1px solid",
+  borderRadius: 18,
+  padding: 10,
+  marginBottom: 8,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
+  flex: "0 0 auto",
+};
+
+const coolingGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.25fr 0.75fr 0.75fr 0.75fr",
+  alignItems: "center",
+  gap: 7,
+  marginTop: 8,
+};
+
+const coolingSwitchStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 6,
+  fontWeight: 900,
+  fontSize: "clamp(12px,3.2vw,14px)",
+};
+
+const checkboxStyle: CSSProperties = {
+  width: 22,
+  height: 22,
+  accentColor: "#2563eb",
+};
+
+const miniLabelStyle: CSSProperties = {
+  marginBottom: 3,
+  fontSize: 10,
+  fontWeight: 900,
+  textAlign: "center",
+};
+
+const coolingInputStyle: CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  border: "1px solid",
+  borderRadius: 10,
+  padding: "6px 4px",
+  fontSize: 14,
+  fontWeight: 950,
+  textAlign: "center",
+  outline: "none",
+};
+
 const rulesCardStyle: CSSProperties = {
   border: "1px solid",
   borderRadius: 18,
@@ -670,7 +845,7 @@ const onlineBadgeStyle: CSSProperties = {
 
 const statusGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
+  gridTemplateColumns: "repeat(5, 1fr)",
 };
 
 const statusItemStyle: CSSProperties = {
@@ -792,7 +967,7 @@ const bottomNavStyle: CSSProperties = {
   maxWidth: 560,
   margin: "0 auto",
   display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
+  gridTemplateColumns: "repeat(5, 1fr)",
   borderTop: "1px solid",
   padding: "7px 4px 9px",
   zIndex: 50,
