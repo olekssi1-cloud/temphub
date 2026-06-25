@@ -14,10 +14,19 @@ type Sensor = {
   rpm: number;
   humidity: number;
   mode: string;
+  cooling?: boolean | null;
   wifi_level?: number | null;
   wifiLevel?: number | null;
   wifi_rssi?: number | null;
   wifiRssi?: number | null;
+};
+
+type CoolingSetting = {
+  device_id: string;
+  enabled: boolean;
+  on_temp: number;
+  off_temp: number;
+  min_work_minutes: number;
 };
 
 const sensorNames: Record<number, string> = {
@@ -57,8 +66,14 @@ function getWifiColor(level: number) {
   return "#94a3b8";
 }
 
+function getCoolingColor(sensor: Sensor) {
+  if (!sensor.online) return "#94a3b8";
+  return sensor.cooling ? "#2563eb" : "#64748b";
+}
+
 export default function HomePage() {
   const [sensors, setSensors] = useState<Sensor[]>([]);
+  const [coolingSettings, setCoolingSettings] = useState<Record<number, CoolingSetting>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -72,6 +87,36 @@ export default function HomePage() {
         if (!cancelled) {
           setSensors(json.sensors ?? []);
           setLoading(false);
+        }
+
+        try {
+          const settingsEntries = await Promise.all(
+            fanIds.map(async (id) => {
+              const res = await fetch(`/api/cooling-settings?device_id=${id}`, {
+                cache: "no-store",
+              });
+              const data = await res.json();
+
+              return [
+                id,
+                {
+                  device_id: String(data.device_id ?? id),
+                  enabled: data.enabled ?? true,
+                  on_temp: Number(data.on_temp ?? 26),
+                  off_temp: Number(data.off_temp ?? 25),
+                  min_work_minutes: Number(data.min_work_minutes ?? 5),
+                },
+              ] as const;
+            })
+          );
+
+          if (!cancelled) {
+            setCoolingSettings(Object.fromEntries(settingsEntries));
+          }
+        } catch {
+          if (!cancelled) {
+            setCoolingSettings({});
+          }
         }
       } catch {
         if (!cancelled) {
@@ -105,6 +150,7 @@ export default function HomePage() {
           rpm: 0,
           humidity: 0,
           mode: "auto",
+          cooling: false,
           wifiLevel: 0,
         }
       );
@@ -116,6 +162,7 @@ export default function HomePage() {
   const totalFans = fanRows.length;
   const onlineCount = fanRows.filter((s) => s.online).length;
   const manualCount = fanRows.filter((s) => s.mode === "manual").length;
+  const coolingCount = fanRows.filter((s) => s.online && s.cooling).length;
   const problemCount = fanRows.filter((s) => !s.online).length;
 
   return (
@@ -144,6 +191,7 @@ export default function HomePage() {
           />
           <SummaryCard icon="📶" label="Онлайн" value={onlineCount} />
           <SummaryCard icon="✋" label="Ручне" value={manualCount} />
+          <SummaryCard icon="❄️" label="Охол." value={coolingCount} />
           <SummaryCard icon="⚠️" label="Проблеми" value={problemCount} danger />
         </section>
 
@@ -158,6 +206,7 @@ export default function HomePage() {
               <div style={headCellStyle}>
                 <FanIcon size={24} color="#334155" />
               </div>
+              <div style={headCellStyle}>❄️</div>
             </div>
 
             {rows.map((sensor) => {
@@ -165,6 +214,9 @@ export default function HomePage() {
               const isManual = sensor.mode === "manual";
               const wifiLevel = getWifiLevel(sensor);
               const wifiColor = getWifiColor(wifiLevel);
+              const coolingSetting = coolingSettings[Number(sensor.id)];
+              const coolingColor = getCoolingColor(sensor);
+              const coolingEnabled = coolingSetting?.enabled ?? true;
 
               return (
                 <Link
@@ -265,6 +317,36 @@ export default function HomePage() {
                       </>
                     )}
                   </div>
+
+                  <div style={valueCellStyle}>
+                    {isYard ? (
+                      <>
+                        <div style={mainValueStyle}>—</div>
+                        <div style={minMaxStyle}>—</div>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          style={{
+                            ...mainValueStyle,
+                            color: coolingColor,
+                            fontSize: "clamp(12px,3.2vw,17px)",
+                          }}
+                        >
+                          {!coolingEnabled
+                            ? "Викл."
+                            : sensor.cooling
+                              ? "ON"
+                              : "OFF"}
+                        </div>
+                        <div style={minMaxStyle}>
+                          {coolingSetting
+                            ? `${formatValue(coolingSetting.on_temp)}/${formatValue(coolingSetting.off_temp)}`
+                            : "26.0/25.0"}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </Link>
               );
             })}
@@ -276,6 +358,7 @@ export default function HomePage() {
           <LegendItem color="#dc2626" text="Офлайн" />
           <LegendItem color="#f59e0b" text="Ручне" />
           <LegendItem color="#16a34a" text="% авто" />
+          <LegendItem color="#2563eb" text="Охол." />
         </section>
 
         <nav style={bottomNavStyle}>
@@ -451,8 +534,8 @@ const themeButtonStyle: CSSProperties = {
 
 const summaryGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: 6,
+  gridTemplateColumns: "repeat(5, 1fr)",
+  gap: 5,
   marginBottom: 10,
 };
 
@@ -462,12 +545,12 @@ const summaryCardStyle: CSSProperties = {
   borderRadius: 14,
   padding: "8px 4px",
   textAlign: "center",
-  minHeight: 78,
+  minHeight: 74,
   boxShadow: "0 5px 14px rgba(15,23,42,0.05)",
 };
 
 const summaryIconStyle: CSSProperties = {
-  height: 30,
+  height: 28,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -500,7 +583,7 @@ const tableWrapStyle: CSSProperties = {
 
 const tableHeaderStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.35fr 0.72fr 0.72fr 0.72fr",
+  gridTemplateColumns: "1.28fr 0.64fr 0.64fr 0.64fr 0.64fr",
   background: "#f1f5f9",
   borderBottom: "1px solid #e5e7eb",
 };
@@ -524,7 +607,7 @@ const headCellStyle: CSSProperties = {
 
 const rowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.35fr 0.72fr 0.72fr 0.72fr",
+  gridTemplateColumns: "1.28fr 0.64fr 0.64fr 0.64fr 0.64fr",
   minHeight: 86,
   color: "#0f172a",
   textDecoration: "none",
@@ -624,7 +707,7 @@ const legendStyle: CSSProperties = {
   borderRadius: 14,
   padding: "8px",
   display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
+  gridTemplateColumns: "repeat(5, 1fr)",
   gap: 4,
 };
 
