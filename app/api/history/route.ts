@@ -13,7 +13,7 @@ function getRangeToInterval(range: string) {
     case "3d":
       return "3 days";
 
-    // залишаю старі варіанти, щоб нічого не зламати
+    // старі варіанти залишаємо, щоб нічого не зламати
     case "1h":
       return "1 hour";
     case "10h":
@@ -24,6 +24,15 @@ function getRangeToInterval(range: string) {
     default:
       return "12 hours";
   }
+}
+
+function makeJson(data: unknown, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -42,31 +51,61 @@ export async function GET(request: NextRequest) {
     const deviceId = String(sensorId).trim();
 
     if (!deviceId) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid device id" },
-        {
-          status: 400,
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        }
-      );
+      return makeJson({ ok: false, error: "Invalid device id" }, 400);
     }
 
+    /*
+      ВАЖЛИВО:
+      Головна сторінка бере актуальну температуру з temperature_logs.
+      Тому графік також бере температуру з temperature_logs.
+      Вологість і двигун підтягуються з найближчого запису sensor_history.
+    */
     const rows = await sql`
       SELECT
-        temp,
-        humidity,
-        rpm,
-        mode,
-        created_at
-      FROM sensor_history
-      WHERE CAST(device_id AS TEXT) = ${deviceId}
-        AND created_at >= NOW() - CAST(${intervalValue} AS interval)
-      ORDER BY created_at ASC
+        tl.temp AS temp,
+        tl.created_at AS created_at,
+        sh.humidity AS humidity,
+        sh.rpm AS rpm,
+        sh.mode AS mode
+      FROM temperature_logs tl
+      LEFT JOIN LATERAL (
+        SELECT
+          humidity,
+          rpm,
+          mode,
+          created_at
+        FROM sensor_history sh
+        WHERE CAST(sh.device_id AS TEXT) = ${deviceId}
+          AND sh.created_at >= tl.created_at - INTERVAL '2 minutes'
+          AND sh.created_at <= tl.created_at + INTERVAL '2 minutes'
+        ORDER BY ABS(EXTRACT(EPOCH FROM (sh.created_at - tl.created_at))) ASC
+        LIMIT 1
+      ) sh ON true
+      WHERE CAST(tl.device_id AS TEXT) = ${deviceId}
+        AND tl.created_at >= NOW() - CAST(${intervalValue} AS interval)
+      ORDER BY tl.created_at ASC
     `;
 
-    const data = rows.map((row: any) => {
+    // Якщо temperature_logs порожня — fallback на стару sensor_history
+    const fallbackRows =
+      rows.length > 0
+        ? []
+        : await sql`
+            SELECT
+              temp,
+              humidity,
+              rpm,
+              mode,
+              created_at
+            FROM sensor_history
+            WHERE CAST(device_id AS TEXT) = ${deviceId}
+              AND created_at >= NOW() - CAST(${intervalValue} AS interval)
+            ORDER BY created_at ASC
+          `;
+
+    const sourceRows = rows.length > 0 ? rows : fallbackRows;
+
+    const data = sourceRows.map((row: any) => {
       const mode = row.mode === "manual" ? "manual" : "auto";
 
       const rpm =
@@ -87,9 +126,6 @@ export async function GET(request: NextRequest) {
 
         mode,
 
-        // для графіка двигуна:
-        // auto   -> реальний rpm
-        // manual -> умовна лінія 10%, щоб було видно ручне керування
         motorGraph: mode === "manual" ? 10 : rpm,
 
         time:
@@ -99,23 +135,14 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json(data, {
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    });
+    return makeJson(data);
   } catch (error) {
-    return NextResponse.json(
+    return makeJson(
       {
         ok: false,
         error: String(error),
       },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      }
+      500
     );
   }
 }
