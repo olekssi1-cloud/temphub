@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent } from "react";
+import type { CSSProperties, MouseEvent, TouchEvent } from "react";
 
 type PeriodKey = "12h" | "1d" | "3d";
 
@@ -22,6 +22,22 @@ type TooltipState = {
   x: number;
 };
 
+type GestureState =
+  | null
+  | {
+      mode: "pan";
+      startX: number;
+      startStart: number;
+      startEnd: number;
+    }
+  | {
+      mode: "pinch";
+      startDistance: number;
+      startStart: number;
+      startEnd: number;
+      centerTime: number;
+    };
+
 const periods: { key: PeriodKey; label: string }[] = [
   { key: "12h", label: "12 год" },
   { key: "1d", label: "1 день" },
@@ -37,6 +53,8 @@ const sensorNames: Record<string, string> = {
   "6": "Карантин",
   "7": "Подвір'я",
 };
+
+const MIN_ZOOM_MS = 60 * 1000; // мінімум 1 хвилина
 
 function normalizeHistory(input: unknown): HistoryPoint[] {
   if (!Array.isArray(input)) return [];
@@ -62,13 +80,23 @@ function normalizeHistory(input: unknown): HistoryPoint[] {
           : Number(item.motorGraph),
       time: String(item?.time ?? ""),
     }))
-    .filter((item) => item.time);
+    .filter((item) => item.time)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
 
-function formatKyivTime(dateString: string, period: PeriodKey) {
+function formatKyivTime(dateString: string, period: PeriodKey, visibleMs?: number) {
   const date = new Date(dateString);
 
-  if (period === "3d") {
+  if (visibleMs !== undefined && visibleMs <= 20 * 60 * 1000) {
+    return new Intl.DateTimeFormat("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(date);
+  }
+
+  if (period === "3d" || (visibleMs !== undefined && visibleMs > 24 * 60 * 60 * 1000)) {
     return new Intl.DateTimeFormat("uk-UA", {
       timeZone: "Europe/Kyiv",
       day: "2-digit",
@@ -93,7 +121,20 @@ function formatKyivDateTime(dateString: string) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   }).format(new Date(dateString));
+}
+
+function formatDuration(ms: number) {
+  const minutes = Math.max(1, Math.round(ms / 60000));
+
+  if (minutes < 60) return `${minutes} хв`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+
+  if (rest === 0) return `${hours} год`;
+  return `${hours} год ${rest} хв`;
 }
 
 function minMax(values: Array<number | null>) {
@@ -108,18 +149,18 @@ function minMax(values: Array<number | null>) {
   };
 }
 
-function getTempScale(points: HistoryPoint[]) {
-  const values = points
-    .map((p) => p.temp)
-    .filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
+function getScale(values: Array<number | null>, fallback: { min: number; max: number }, padding = 2) {
+  const nums = values.filter(
+    (v): v is number => typeof v === "number" && !Number.isNaN(v)
+  );
 
-  if (!values.length) return { min: 0, max: 30 };
+  if (!nums.length) return fallback;
 
-  const minRaw = Math.min(...values);
-  const maxRaw = Math.max(...values);
+  const minRaw = Math.min(...nums);
+  const maxRaw = Math.max(...nums);
 
-  let min = Math.floor(minRaw - 2);
-  let max = Math.ceil(maxRaw + 2);
+  let min = Math.floor(minRaw - padding);
+  let max = Math.ceil(maxRaw + padding);
 
   if (max - min < 6) {
     const middle = (max + min) / 2;
@@ -130,14 +171,35 @@ function getTempScale(points: HistoryPoint[]) {
   return { min, max };
 }
 
-function buildPath(
+function clampDomain(start: number, end: number, fullStart: number, fullEnd: number) {
+  const fullDuration = Math.max(fullEnd - fullStart, MIN_ZOOM_MS);
+  let duration = Math.max(MIN_ZOOM_MS, Math.min(end - start, fullDuration));
+
+  let nextStart = start;
+  let nextEnd = nextStart + duration;
+
+  if (nextStart < fullStart) {
+    nextStart = fullStart;
+    nextEnd = nextStart + duration;
+  }
+
+  if (nextEnd > fullEnd) {
+    nextEnd = fullEnd;
+    nextStart = nextEnd - duration;
+  }
+
+  if (nextStart < fullStart) nextStart = fullStart;
+  if (nextEnd > fullEnd) nextEnd = fullEnd;
+
+  return { start: nextStart, end: nextEnd };
+}
+
+function buildPathByTime(
   points: HistoryPoint[],
   key: "temp" | "humidity" | "motorGraph",
   valueToY: (value: number) => number,
-  width: number,
-  margin: { top: number; right: number; bottom: number; left: number }
+  timeToX: (timeMs: number) => number
 ) {
-  const innerWidth = width - margin.left - margin.right;
   let path = "";
   let started = false;
 
@@ -149,15 +211,14 @@ function buildPath(
       return;
     }
 
+    const timeMs = new Date(point.time).getTime();
+
     if (index > 0) {
       const prevTime = new Date(points[index - 1].time).getTime();
-      const thisTime = new Date(point.time).getTime();
-
-      if (thisTime - prevTime > 3 * 60 * 1000) started = false;
+      if (timeMs - prevTime > 3 * 60 * 1000) started = false;
     }
 
-    const x =
-      margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
+    const x = timeToX(timeMs);
     const y = valueToY(value);
 
     path += `${started ? " L" : " M"}${x.toFixed(2)},${y.toFixed(2)}`;
@@ -167,16 +228,36 @@ function buildPath(
   return path.trim();
 }
 
+function nearestPointIndex(points: HistoryPoint[], targetMs: number) {
+  if (!points.length) return 0;
+
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  points.forEach((point, index) => {
+    const distance = Math.abs(new Date(point.time).getTime() - targetMs);
+
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  });
+
+  return bestIndex;
+}
+
 export default function ChartPage() {
   const params = useParams();
   const id = String(params?.id ?? "1");
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const gestureRef = useRef<GestureState>(null);
 
   const [period, setPeriod] = useState<PeriodKey>("12h");
   const [points, setPoints] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [viewDomain, setViewDomain] = useState<{ start: number; end: number } | null>(null);
 
   const [showTemp, setShowTemp] = useState(true);
   const [showHumidity, setShowHumidity] = useState(true);
@@ -203,11 +284,22 @@ export default function ChartPage() {
         const json = await res.json();
         const normalized = normalizeHistory(json);
 
-        if (!cancelled) setPoints(normalized);
+        if (!cancelled) {
+          setPoints(normalized);
+
+          if (normalized.length > 0) {
+            const first = new Date(normalized[0].time).getTime();
+            const last = new Date(normalized[normalized.length - 1].time).getTime();
+            setViewDomain({ start: first, end: Math.max(last, first + MIN_ZOOM_MS) });
+          } else {
+            setViewDomain(null);
+          }
+        }
       } catch {
         if (!cancelled) {
           setError("Не вдалося завантажити графік");
           setPoints([]);
+          setViewDomain(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -223,14 +315,39 @@ export default function ChartPage() {
     };
   }, [id, period]);
 
-  const tempStats = useMemo(() => minMax(points.map((p) => p.temp)), [points]);
+  const fullDomain = useMemo(() => {
+    if (!points.length) return null;
+
+    const first = new Date(points[0].time).getTime();
+    const last = new Date(points[points.length - 1].time).getTime();
+
+    return { start: first, end: Math.max(last, first + MIN_ZOOM_MS) };
+  }, [points]);
+
+  const activeDomain = viewDomain ?? fullDomain;
+
+  const visiblePoints = useMemo(() => {
+    if (!activeDomain) return [];
+
+    return points.filter((point) => {
+      const t = new Date(point.time).getTime();
+      return t >= activeDomain.start && t <= activeDomain.end;
+    });
+  }, [points, activeDomain]);
+
+  const statsPoints = visiblePoints.length ? visiblePoints : points;
+
+  const tempStats = useMemo(
+    () => minMax(statsPoints.map((p) => p.temp)),
+    [statsPoints]
+  );
   const humidityStats = useMemo(
-    () => minMax(points.map((p) => p.humidity)),
-    [points]
+    () => minMax(statsPoints.map((p) => p.humidity)),
+    [statsPoints]
   );
   const motorStats = useMemo(
-    () => minMax(points.map((p) => p.motorGraph)),
-    [points]
+    () => minMax(statsPoints.map((p) => p.motorGraph)),
+    [statsPoints]
   );
 
   const lastPoint = points.length ? points[points.length - 1] : null;
@@ -248,7 +365,19 @@ export default function ChartPage() {
     const innerHeight = height - margin.top - margin.bottom;
     const innerWidth = width - margin.left - margin.right;
 
-    const tempScale = getTempScale(points);
+    const domain =
+      activeDomain ??
+      (points.length
+        ? {
+            start: new Date(points[0].time).getTime(),
+            end: new Date(points[points.length - 1].time).getTime(),
+          }
+        : { start: 0, end: MIN_ZOOM_MS });
+
+    const visibleDuration = Math.max(domain.end - domain.start, MIN_ZOOM_MS);
+    const visible = visiblePoints.length ? visiblePoints : points;
+
+    const tempScale = getScale(visible.map((p) => p.temp), { min: 0, max: 30 }, 2);
     const tempRange = tempScale.max - tempScale.min || 1;
 
     const tempToY = (value: number) =>
@@ -256,27 +385,46 @@ export default function ChartPage() {
       innerHeight -
       ((value - tempScale.min) / tempRange) * innerHeight;
 
+    const percentScale = getScale(
+      [...visible.map((p) => p.humidity), ...visible.map((p) => p.motorGraph)],
+      { min: 0, max: 100 },
+      5
+    );
+
+    const percentMin = Math.max(0, Math.floor(percentScale.min));
+    const percentMax = Math.min(100, Math.ceil(percentScale.max));
+    const percentRange = Math.max(percentMax - percentMin, 1);
+
     const percentToY = (value: number) =>
-      margin.top + innerHeight - (value / 100) * innerHeight;
+      margin.top + innerHeight - ((value - percentMin) / percentRange) * innerHeight;
 
-    const tempPath = buildPath(points, "temp", tempToY, width, margin);
-    const humidityPath = buildPath(points, "humidity", percentToY, width, margin);
-    const motorPath = buildPath(points, "motorGraph", percentToY, width, margin);
+    const timeToX = (timeMs: number) =>
+      margin.left + ((timeMs - domain.start) / visibleDuration) * innerWidth;
 
-    const xTicks = Array.from({ length: 5 }, (_, i) => {
-      const index = Math.min(
-        points.length - 1,
-        Math.round((i / 4) * Math.max(points.length - 1, 0))
-      );
+    const xToTime = (x: number) => {
+      const ratio = (x - margin.left) / Math.max(innerWidth, 1);
+      return domain.start + ratio * visibleDuration;
+    };
 
-      const x =
-        margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
+    const tempPath = buildPathByTime(visible, "temp", tempToY, timeToX);
+    const humidityPath = buildPathByTime(visible, "humidity", percentToY, timeToX);
+    const motorPath = buildPathByTime(visible, "motorGraph", percentToY, timeToX);
 
-      return { x, label: points[index]?.time ?? "" };
+    const tickCount = visibleDuration <= 20 * 60 * 1000 ? 6 : 5;
+    const xTicks = Array.from({ length: tickCount }, (_, i) => {
+      const timeMs = domain.start + (i / Math.max(tickCount - 1, 1)) * visibleDuration;
+      return {
+        x: timeToX(timeMs),
+        label: new Date(timeMs).toISOString(),
+      };
     });
 
     const tempTicks = Array.from({ length: 5 }, (_, i) =>
       Number((tempScale.min + (i / 4) * tempRange).toFixed(1))
+    );
+
+    const percentTicks = Array.from({ length: 5 }, (_, i) =>
+      Number((percentMin + (i / 4) * percentRange).toFixed(0))
     );
 
     return {
@@ -286,37 +434,155 @@ export default function ChartPage() {
       innerWidth,
       tempToY,
       percentToY,
+      timeToX,
+      xToTime,
       tempPath,
       humidityPath,
       motorPath,
       xTicks,
       tempTicks,
-      percentTicks: [0, 25, 50, 75, 100],
+      percentTicks,
+      visibleDuration,
+      domain,
     };
-  }, [points]);
+  }, [points, visiblePoints, activeDomain]);
 
-  function handlePointer(event: PointerEvent<SVGSVGElement>) {
-    if (!svgRef.current || !points.length) return;
+  function getSvgX(clientX: number) {
+    if (!svgRef.current) return 0;
 
     const rect = svgRef.current.getBoundingClientRect();
-    const xPx = event.clientX - rect.left;
-    const viewX = (xPx / rect.width) * chart.width;
+    return ((clientX - rect.left) / rect.width) * chart.width;
+  }
 
+  function handleMouseMove(event: MouseEvent<SVGSVGElement>) {
+    if (!svgRef.current || !visiblePoints.length) return;
+
+    const viewX = getSvgX(event.clientX);
     const startX = chart.margin.left;
     const endX = chart.width - chart.margin.right;
     const clampedX = Math.max(startX, Math.min(endX, viewX));
-
-    const ratio = (clampedX - startX) / Math.max(chart.innerWidth, 1);
-    const index = Math.round(ratio * (points.length - 1));
+    const targetTime = chart.xToTime(clampedX);
+    const localIndex = nearestPointIndex(visiblePoints, targetTime);
+    const point = visiblePoints[localIndex];
+    const globalIndex = points.indexOf(point);
 
     setTooltip({
       visible: true,
-      index: Math.max(0, Math.min(points.length - 1, index)),
-      x: clampedX,
+      index: Math.max(0, globalIndex),
+      x: chart.timeToX(new Date(point.time).getTime()),
     });
   }
 
+  function getTouchDistance(event: TouchEvent<SVGSVGElement>) {
+    const a = event.touches[0];
+    const b = event.touches[1];
+
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  function getTouchCenterX(event: TouchEvent<SVGSVGElement>) {
+    const a = event.touches[0];
+    const b = event.touches[1];
+
+    return (a.clientX + b.clientX) / 2;
+  }
+
+  function handleTouchStart(event: TouchEvent<SVGSVGElement>) {
+    if (!activeDomain || !fullDomain) return;
+
+    setTooltip((prev) => ({ ...prev, visible: false }));
+
+    if (event.touches.length === 1) {
+      gestureRef.current = {
+        mode: "pan",
+        startX: event.touches[0].clientX,
+        startStart: activeDomain.start,
+        startEnd: activeDomain.end,
+      };
+    }
+
+    if (event.touches.length >= 2) {
+      const centerSvgX = getSvgX(getTouchCenterX(event));
+      const centerTime = chart.xToTime(centerSvgX);
+
+      gestureRef.current = {
+        mode: "pinch",
+        startDistance: Math.max(getTouchDistance(event), 1),
+        startStart: activeDomain.start,
+        startEnd: activeDomain.end,
+        centerTime,
+      };
+    }
+  }
+
+  function handleTouchMove(event: TouchEvent<SVGSVGElement>) {
+    if (!gestureRef.current || !fullDomain) return;
+
+    event.preventDefault();
+
+    const gesture = gestureRef.current;
+
+    if (gesture.mode === "pan" && event.touches.length === 1) {
+      const dxPx = event.touches[0].clientX - gesture.startX;
+      const rect = svgRef.current?.getBoundingClientRect();
+      const dxSvg = rect ? (dxPx / rect.width) * chart.width : dxPx;
+      const duration = gesture.startEnd - gesture.startStart;
+      const msPerSvgPx = duration / Math.max(chart.innerWidth, 1);
+      const shiftMs = dxSvg * msPerSvgPx;
+
+      const next = clampDomain(
+        gesture.startStart - shiftMs,
+        gesture.startEnd - shiftMs,
+        fullDomain.start,
+        fullDomain.end
+      );
+
+      setViewDomain(next);
+    }
+
+    if (gesture.mode === "pinch" && event.touches.length >= 2) {
+      const currentDistance = Math.max(getTouchDistance(event), 1);
+      const startDuration = gesture.startEnd - gesture.startStart;
+      const rawDuration = startDuration * (gesture.startDistance / currentDistance);
+      const fullDuration = fullDomain.end - fullDomain.start;
+      const duration = Math.max(MIN_ZOOM_MS, Math.min(rawDuration, fullDuration));
+
+      const centerSvgX = getSvgX(getTouchCenterX(event));
+      const ratio = Math.max(
+        0,
+        Math.min(
+          1,
+          (centerSvgX - chart.margin.left) / Math.max(chart.innerWidth, 1)
+        )
+      );
+
+      const nextStart = gesture.centerTime - ratio * duration;
+      const next = clampDomain(
+        nextStart,
+        nextStart + duration,
+        fullDomain.start,
+        fullDomain.end
+      );
+
+      setViewDomain(next);
+    }
+  }
+
+  function handleTouchEnd() {
+    gestureRef.current = null;
+  }
+
+  function resetZoom() {
+    setViewDomain(fullDomain);
+    setTooltip((prev) => ({ ...prev, visible: false }));
+  }
+
   const tooltipPoint = points[tooltip.index];
+  const zoomActive =
+    fullDomain &&
+    activeDomain &&
+    Math.round(activeDomain.end - activeDomain.start) <
+      Math.round(fullDomain.end - fullDomain.start);
 
   return (
     <main style={pageStyle}>
@@ -418,6 +684,23 @@ export default function ChartPage() {
             </label>
           </div>
 
+          <div style={zoomRowStyle}>
+            <span>
+              🔍 Видно: <b>{activeDomain ? formatDuration(activeDomain.end - activeDomain.start) : "—"}</b>
+            </span>
+            <button
+              type="button"
+              onClick={resetZoom}
+              disabled={!zoomActive}
+              style={{
+                ...resetButtonStyle,
+                opacity: zoomActive ? 1 : 0.45,
+              }}
+            >
+              Скинути
+            </button>
+          </div>
+
           <div style={chartAreaStyle}>
             {loading ? (
               <div style={emptyStyle}>Завантаження...</div>
@@ -432,14 +715,14 @@ export default function ChartPage() {
                 height="100%"
                 viewBox="0 0 900 500"
                 preserveAspectRatio="none"
-                onPointerDown={handlePointer}
-                onPointerMove={(e) => tooltip.visible && handlePointer(e)}
-                onPointerUp={() =>
+                onMouseMove={handleMouseMove}
+                onMouseLeave={() =>
                   setTooltip((prev) => ({ ...prev, visible: false }))
                 }
-                onPointerLeave={() =>
-                  setTooltip((prev) => ({ ...prev, visible: false }))
-                }
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchEnd}
                 style={{ touchAction: "none", display: "block" }}
               >
                 {chart.percentTicks.map((tick) => {
@@ -492,7 +775,7 @@ export default function ChartPage() {
                     fontSize="13"
                     textAnchor="middle"
                   >
-                    {formatKyivTime(tick.label, period)}
+                    {formatKyivTime(tick.label, period, chart.visibleDuration)}
                   </text>
                 ))}
 
@@ -561,11 +844,11 @@ export default function ChartPage() {
                     />
 
                     <foreignObject
-  x={tooltip.x > 560 ? tooltip.x - 300 : tooltip.x + 16}
-  y={36}
-  width="280"
-  height="190"
->
+                      x={tooltip.x > 560 ? tooltip.x - 300 : tooltip.x + 16}
+                      y={36}
+                      width="280"
+                      height="190"
+                    >
                       <div style={tooltipStyle}>
                         <div style={{ fontWeight: 900, marginBottom: 6 }}>
                           {formatKyivDateTime(tooltipPoint.time)}
@@ -747,6 +1030,26 @@ const checkboxRowStyle: CSSProperties = {
   fontSize: "clamp(11px, 3vw, 14px)",
   fontWeight: 900,
   flex: "0 0 auto",
+};
+
+const zoomRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+  marginBottom: 5,
+  fontSize: "clamp(11px, 3vw, 13px)",
+  color: "#64748b",
+  fontWeight: 800,
+};
+
+const resetButtonStyle: CSSProperties = {
+  border: "1px solid #cbd5e1",
+  background: "#f8fafc",
+  borderRadius: 999,
+  padding: "5px 10px",
+  fontWeight: 900,
+  color: "#0f172a",
 };
 
 const checkLabelStyle: CSSProperties = {
