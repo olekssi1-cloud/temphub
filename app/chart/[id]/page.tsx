@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, TouchEvent } from "react";
+import type { CSSProperties, PointerEvent } from "react";
 
 type PeriodKey = "12h" | "1d" | "3d";
 
@@ -22,27 +22,26 @@ type TooltipState = {
   x: number;
 };
 
-type GestureState =
-  | null
-  | {
-      mode: "pan";
-      startX: number;
-      startStart: number;
-      startEnd: number;
-    }
-  | {
-      mode: "pinch";
-      startDistance: number;
-      startStart: number;
-      startEnd: number;
-      centerTime: number;
-    };
-
 const periods: { key: PeriodKey; label: string }[] = [
   { key: "12h", label: "12 год" },
   { key: "1d", label: "1 день" },
   { key: "3d", label: "3 дні" },
 ];
+
+
+const zoomButtons = [
+  { label: "Весь", minutes: null },
+  { label: "6 год", minutes: 360 },
+  { label: "3 год", minutes: 180 },
+  { label: "1 год", minutes: 60 },
+  { label: "30 хв", minutes: 30 },
+  { label: "10 хв", minutes: 10 },
+  { label: "5 хв", minutes: 5 },
+];
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 const sensorNames: Record<string, string> = {
   "1": "Опорос",
@@ -53,8 +52,6 @@ const sensorNames: Record<string, string> = {
   "6": "Карантин",
   "7": "Подвір'я",
 };
-
-const MIN_ZOOM_MS = 60 * 1000; // мінімум 1 хвилина
 
 function normalizeHistory(input: unknown): HistoryPoint[] {
   if (!Array.isArray(input)) return [];
@@ -80,23 +77,13 @@ function normalizeHistory(input: unknown): HistoryPoint[] {
           : Number(item.motorGraph),
       time: String(item?.time ?? ""),
     }))
-    .filter((item) => item.time)
-    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    .filter((item) => item.time);
 }
 
-function formatKyivTime(dateString: string, period: PeriodKey, visibleMs?: number) {
+function formatKyivTime(dateString: string, period: PeriodKey) {
   const date = new Date(dateString);
 
-  if (visibleMs !== undefined && visibleMs <= 20 * 60 * 1000) {
-    return new Intl.DateTimeFormat("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(date);
-  }
-
-  if (period === "3d" || (visibleMs !== undefined && visibleMs > 24 * 60 * 60 * 1000)) {
+  if (period === "3d") {
     return new Intl.DateTimeFormat("uk-UA", {
       timeZone: "Europe/Kyiv",
       day: "2-digit",
@@ -121,20 +108,7 @@ function formatKyivDateTime(dateString: string) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
   }).format(new Date(dateString));
-}
-
-function formatDuration(ms: number) {
-  const minutes = Math.max(1, Math.round(ms / 60000));
-
-  if (minutes < 60) return `${minutes} хв`;
-
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-
-  if (rest === 0) return `${hours} год`;
-  return `${hours} год ${rest} хв`;
 }
 
 function minMax(values: Array<number | null>) {
@@ -149,18 +123,18 @@ function minMax(values: Array<number | null>) {
   };
 }
 
-function getScale(values: Array<number | null>, fallback: { min: number; max: number }, padding = 2) {
-  const nums = values.filter(
-    (v): v is number => typeof v === "number" && !Number.isNaN(v)
-  );
+function getTempScale(points: HistoryPoint[]) {
+  const values = points
+    .map((p) => p.temp)
+    .filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
 
-  if (!nums.length) return fallback;
+  if (!values.length) return { min: 0, max: 30 };
 
-  const minRaw = Math.min(...nums);
-  const maxRaw = Math.max(...nums);
+  const minRaw = Math.min(...values);
+  const maxRaw = Math.max(...values);
 
-  let min = Math.floor(minRaw - padding);
-  let max = Math.ceil(maxRaw + padding);
+  let min = Math.floor(minRaw - 2);
+  let max = Math.ceil(maxRaw + 2);
 
   if (max - min < 6) {
     const middle = (max + min) / 2;
@@ -171,35 +145,14 @@ function getScale(values: Array<number | null>, fallback: { min: number; max: nu
   return { min, max };
 }
 
-function clampDomain(start: number, end: number, fullStart: number, fullEnd: number) {
-  const fullDuration = Math.max(fullEnd - fullStart, MIN_ZOOM_MS);
-  let duration = Math.max(MIN_ZOOM_MS, Math.min(end - start, fullDuration));
-
-  let nextStart = start;
-  let nextEnd = nextStart + duration;
-
-  if (nextStart < fullStart) {
-    nextStart = fullStart;
-    nextEnd = nextStart + duration;
-  }
-
-  if (nextEnd > fullEnd) {
-    nextEnd = fullEnd;
-    nextStart = nextEnd - duration;
-  }
-
-  if (nextStart < fullStart) nextStart = fullStart;
-  if (nextEnd > fullEnd) nextEnd = fullEnd;
-
-  return { start: nextStart, end: nextEnd };
-}
-
-function buildPathByTime(
+function buildPath(
   points: HistoryPoint[],
   key: "temp" | "humidity" | "motorGraph",
   valueToY: (value: number) => number,
-  timeToX: (timeMs: number) => number
+  width: number,
+  margin: { top: number; right: number; bottom: number; left: number }
 ) {
+  const innerWidth = width - margin.left - margin.right;
   let path = "";
   let started = false;
 
@@ -211,14 +164,15 @@ function buildPathByTime(
       return;
     }
 
-    const timeMs = new Date(point.time).getTime();
-
     if (index > 0) {
       const prevTime = new Date(points[index - 1].time).getTime();
-      if (timeMs - prevTime > 3 * 60 * 1000) started = false;
+      const thisTime = new Date(point.time).getTime();
+
+      if (thisTime - prevTime > 3 * 60 * 1000) started = false;
     }
 
-    const x = timeToX(timeMs);
+    const x =
+      margin.left + (index / Math.max(points.length - 1, 1)) * innerWidth;
     const y = valueToY(value);
 
     path += `${started ? " L" : " M"}${x.toFixed(2)},${y.toFixed(2)}`;
@@ -228,36 +182,16 @@ function buildPathByTime(
   return path.trim();
 }
 
-function nearestPointIndex(points: HistoryPoint[], targetMs: number) {
-  if (!points.length) return 0;
-
-  let bestIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  points.forEach((point, index) => {
-    const distance = Math.abs(new Date(point.time).getTime() - targetMs);
-
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = index;
-    }
-  });
-
-  return bestIndex;
-}
-
 export default function ChartPage() {
   const params = useParams();
   const id = String(params?.id ?? "1");
 
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const gestureRef = useRef<GestureState>(null);
 
   const [period, setPeriod] = useState<PeriodKey>("12h");
   const [points, setPoints] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [viewDomain, setViewDomain] = useState<{ start: number; end: number } | null>(null);
 
   const [showTemp, setShowTemp] = useState(true);
   const [showHumidity, setShowHumidity] = useState(true);
@@ -268,6 +202,10 @@ export default function ChartPage() {
     index: 0,
     x: 0,
   });
+
+  const [zoomMinutes, setZoomMinutes] = useState<number | null>(null);
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const [panPercent, setPanPercent] = useState(100);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,22 +222,11 @@ export default function ChartPage() {
         const json = await res.json();
         const normalized = normalizeHistory(json);
 
-        if (!cancelled) {
-          setPoints(normalized);
-
-          if (normalized.length > 0) {
-            const first = new Date(normalized[0].time).getTime();
-            const last = new Date(normalized[normalized.length - 1].time).getTime();
-            setViewDomain({ start: first, end: Math.max(last, first + MIN_ZOOM_MS) });
-          } else {
-            setViewDomain(null);
-          }
-        }
+        if (!cancelled) setPoints(normalized);
       } catch {
         if (!cancelled) {
           setError("Не вдалося завантажити графік");
           setPoints([]);
-          setViewDomain(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -315,39 +242,75 @@ export default function ChartPage() {
     };
   }, [id, period]);
 
-  const fullDomain = useMemo(() => {
-    if (!points.length) return null;
+  useEffect(() => {
+    setZoomMinutes(null);
+    setZoomPercent(100);
+    setPanPercent(100);
+  }, [period]);
 
-    const first = new Date(points[0].time).getTime();
-    const last = new Date(points[points.length - 1].time).getTime();
+  const timeInfo = useMemo(() => {
+    if (points.length < 2) {
+      return { firstMs: 0, lastMs: 0, totalMinutes: 0 };
+    }
 
-    return { start: first, end: Math.max(last, first + MIN_ZOOM_MS) };
+    const firstMs = new Date(points[0].time).getTime();
+    const lastMs = new Date(points[points.length - 1].time).getTime();
+    const totalMinutes = Math.max(1, (lastMs - firstMs) / 60000);
+
+    return { firstMs, lastMs, totalMinutes };
   }, [points]);
 
-  const activeDomain = viewDomain ?? fullDomain;
+  const activeZoomMinutes = useMemo(() => {
+    if (!points.length || timeInfo.totalMinutes <= 0) return null;
+    if (zoomMinutes !== null) return Math.min(zoomMinutes, timeInfo.totalMinutes);
+
+    const minMinutes = Math.min(5, timeInfo.totalMinutes);
+    const percent = clampNumber(zoomPercent, 0, 100);
+
+    if (percent >= 99) return null;
+
+    const ratio = percent / 100;
+    return minMinutes + (timeInfo.totalMinutes - minMinutes) * ratio;
+  }, [points.length, timeInfo.totalMinutes, zoomMinutes, zoomPercent]);
 
   const visiblePoints = useMemo(() => {
-    if (!activeDomain) return [];
+    if (!points.length || !activeZoomMinutes || activeZoomMinutes >= timeInfo.totalMinutes) {
+      return points;
+    }
 
-    return points.filter((point) => {
-      const t = new Date(point.time).getTime();
-      return t >= activeDomain.start && t <= activeDomain.end;
+    const windowMs = activeZoomMinutes * 60000;
+    const availableMs = Math.max(0, timeInfo.lastMs - timeInfo.firstMs - windowMs);
+    const startMs = timeInfo.firstMs + availableMs * (clampNumber(panPercent, 0, 100) / 100);
+    const endMs = startMs + windowMs;
+
+    const filtered = points.filter((p) => {
+      const t = new Date(p.time).getTime();
+      return t >= startMs && t <= endMs;
     });
-  }, [points, activeDomain]);
 
-  const statsPoints = visiblePoints.length ? visiblePoints : points;
+    return filtered.length >= 2 ? filtered : points.slice(-2);
+  }, [points, activeZoomMinutes, timeInfo, panPercent]);
 
-  const tempStats = useMemo(
-    () => minMax(statsPoints.map((p) => p.temp)),
-    [statsPoints]
-  );
+  const zoomLabel = useMemo(() => {
+    if (!activeZoomMinutes || activeZoomMinutes >= timeInfo.totalMinutes) return "Весь діапазон";
+
+    if (activeZoomMinutes >= 60) {
+      const hours = Math.floor(activeZoomMinutes / 60);
+      const minutes = Math.round(activeZoomMinutes % 60);
+      return minutes > 0 ? `${hours} год ${minutes} хв` : `${hours} год`;
+    }
+
+    return `${Math.round(activeZoomMinutes)} хв`;
+  }, [activeZoomMinutes, timeInfo.totalMinutes]);
+
+  const tempStats = useMemo(() => minMax(visiblePoints.map((p) => p.temp)), [visiblePoints]);
   const humidityStats = useMemo(
-    () => minMax(statsPoints.map((p) => p.humidity)),
-    [statsPoints]
+    () => minMax(visiblePoints.map((p) => p.humidity)),
+    [visiblePoints]
   );
   const motorStats = useMemo(
-    () => minMax(statsPoints.map((p) => p.motorGraph)),
-    [statsPoints]
+    () => minMax(visiblePoints.map((p) => p.motorGraph)),
+    [visiblePoints]
   );
 
   const lastPoint = points.length ? points[points.length - 1] : null;
@@ -365,19 +328,7 @@ export default function ChartPage() {
     const innerHeight = height - margin.top - margin.bottom;
     const innerWidth = width - margin.left - margin.right;
 
-    const domain =
-      activeDomain ??
-      (points.length
-        ? {
-            start: new Date(points[0].time).getTime(),
-            end: new Date(points[points.length - 1].time).getTime(),
-          }
-        : { start: 0, end: MIN_ZOOM_MS });
-
-    const visibleDuration = Math.max(domain.end - domain.start, MIN_ZOOM_MS);
-    const visible = visiblePoints.length ? visiblePoints : points;
-
-    const tempScale = getScale(visible.map((p) => p.temp), { min: 0, max: 30 }, 2);
+    const tempScale = getTempScale(visiblePoints);
     const tempRange = tempScale.max - tempScale.min || 1;
 
     const tempToY = (value: number) =>
@@ -385,46 +336,27 @@ export default function ChartPage() {
       innerHeight -
       ((value - tempScale.min) / tempRange) * innerHeight;
 
-    const percentScale = getScale(
-      [...visible.map((p) => p.humidity), ...visible.map((p) => p.motorGraph)],
-      { min: 0, max: 100 },
-      5
-    );
-
-    const percentMin = Math.max(0, Math.floor(percentScale.min));
-    const percentMax = Math.min(100, Math.ceil(percentScale.max));
-    const percentRange = Math.max(percentMax - percentMin, 1);
-
     const percentToY = (value: number) =>
-      margin.top + innerHeight - ((value - percentMin) / percentRange) * innerHeight;
+      margin.top + innerHeight - (value / 100) * innerHeight;
 
-    const timeToX = (timeMs: number) =>
-      margin.left + ((timeMs - domain.start) / visibleDuration) * innerWidth;
+    const tempPath = buildPath(visiblePoints, "temp", tempToY, width, margin);
+    const humidityPath = buildPath(visiblePoints, "humidity", percentToY, width, margin);
+    const motorPath = buildPath(visiblePoints, "motorGraph", percentToY, width, margin);
 
-    const xToTime = (x: number) => {
-      const ratio = (x - margin.left) / Math.max(innerWidth, 1);
-      return domain.start + ratio * visibleDuration;
-    };
+    const xTicks = Array.from({ length: 5 }, (_, i) => {
+      const index = Math.min(
+        visiblePoints.length - 1,
+        Math.round((i / 4) * Math.max(visiblePoints.length - 1, 0))
+      );
 
-    const tempPath = buildPathByTime(visible, "temp", tempToY, timeToX);
-    const humidityPath = buildPathByTime(visible, "humidity", percentToY, timeToX);
-    const motorPath = buildPathByTime(visible, "motorGraph", percentToY, timeToX);
+      const x =
+        margin.left + (index / Math.max(visiblePoints.length - 1, 1)) * innerWidth;
 
-    const tickCount = visibleDuration <= 20 * 60 * 1000 ? 6 : 5;
-    const xTicks = Array.from({ length: tickCount }, (_, i) => {
-      const timeMs = domain.start + (i / Math.max(tickCount - 1, 1)) * visibleDuration;
-      return {
-        x: timeToX(timeMs),
-        label: new Date(timeMs).toISOString(),
-      };
+      return { x, label: visiblePoints[index]?.time ?? "" };
     });
 
     const tempTicks = Array.from({ length: 5 }, (_, i) =>
       Number((tempScale.min + (i / 4) * tempRange).toFixed(1))
-    );
-
-    const percentTicks = Array.from({ length: 5 }, (_, i) =>
-      Number((percentMin + (i / 4) * percentRange).toFixed(0))
     );
 
     return {
@@ -434,155 +366,37 @@ export default function ChartPage() {
       innerWidth,
       tempToY,
       percentToY,
-      timeToX,
-      xToTime,
       tempPath,
       humidityPath,
       motorPath,
       xTicks,
       tempTicks,
-      percentTicks,
-      visibleDuration,
-      domain,
+      percentTicks: [0, 25, 50, 75, 100],
     };
-  }, [points, visiblePoints, activeDomain]);
+  }, [visiblePoints]);
 
-  function getSvgX(clientX: number) {
-    if (!svgRef.current) return 0;
-
-    const rect = svgRef.current.getBoundingClientRect();
-    return ((clientX - rect.left) / rect.width) * chart.width;
-  }
-
-  function handleMouseMove(event: MouseEvent<SVGSVGElement>) {
+  function handlePointer(event: PointerEvent<SVGSVGElement>) {
     if (!svgRef.current || !visiblePoints.length) return;
 
-    const viewX = getSvgX(event.clientX);
+    const rect = svgRef.current.getBoundingClientRect();
+    const xPx = event.clientX - rect.left;
+    const viewX = (xPx / rect.width) * chart.width;
+
     const startX = chart.margin.left;
     const endX = chart.width - chart.margin.right;
     const clampedX = Math.max(startX, Math.min(endX, viewX));
-    const targetTime = chart.xToTime(clampedX);
-    const localIndex = nearestPointIndex(visiblePoints, targetTime);
-    const point = visiblePoints[localIndex];
-    const globalIndex = points.indexOf(point);
+
+    const ratio = (clampedX - startX) / Math.max(chart.innerWidth, 1);
+    const index = Math.round(ratio * (visiblePoints.length - 1));
 
     setTooltip({
       visible: true,
-      index: Math.max(0, globalIndex),
-      x: chart.timeToX(new Date(point.time).getTime()),
+      index: Math.max(0, Math.min(visiblePoints.length - 1, index)),
+      x: clampedX,
     });
   }
 
-  function getTouchDistance(event: TouchEvent<SVGSVGElement>) {
-    const a = event.touches[0];
-    const b = event.touches[1];
-
-    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-  }
-
-  function getTouchCenterX(event: TouchEvent<SVGSVGElement>) {
-    const a = event.touches[0];
-    const b = event.touches[1];
-
-    return (a.clientX + b.clientX) / 2;
-  }
-
-  function handleTouchStart(event: TouchEvent<SVGSVGElement>) {
-    if (!activeDomain || !fullDomain) return;
-
-    setTooltip((prev) => ({ ...prev, visible: false }));
-
-    if (event.touches.length === 1) {
-      gestureRef.current = {
-        mode: "pan",
-        startX: event.touches[0].clientX,
-        startStart: activeDomain.start,
-        startEnd: activeDomain.end,
-      };
-    }
-
-    if (event.touches.length >= 2) {
-      const centerSvgX = getSvgX(getTouchCenterX(event));
-      const centerTime = chart.xToTime(centerSvgX);
-
-      gestureRef.current = {
-        mode: "pinch",
-        startDistance: Math.max(getTouchDistance(event), 1),
-        startStart: activeDomain.start,
-        startEnd: activeDomain.end,
-        centerTime,
-      };
-    }
-  }
-
-  function handleTouchMove(event: TouchEvent<SVGSVGElement>) {
-    if (!gestureRef.current || !fullDomain) return;
-
-    event.preventDefault();
-
-    const gesture = gestureRef.current;
-
-    if (gesture.mode === "pan" && event.touches.length === 1) {
-      const dxPx = event.touches[0].clientX - gesture.startX;
-      const rect = svgRef.current?.getBoundingClientRect();
-      const dxSvg = rect ? (dxPx / rect.width) * chart.width : dxPx;
-      const duration = gesture.startEnd - gesture.startStart;
-      const msPerSvgPx = duration / Math.max(chart.innerWidth, 1);
-      const shiftMs = dxSvg * msPerSvgPx;
-
-      const next = clampDomain(
-        gesture.startStart - shiftMs,
-        gesture.startEnd - shiftMs,
-        fullDomain.start,
-        fullDomain.end
-      );
-
-      setViewDomain(next);
-    }
-
-    if (gesture.mode === "pinch" && event.touches.length >= 2) {
-      const currentDistance = Math.max(getTouchDistance(event), 1);
-      const startDuration = gesture.startEnd - gesture.startStart;
-      const rawDuration = startDuration * (gesture.startDistance / currentDistance);
-      const fullDuration = fullDomain.end - fullDomain.start;
-      const duration = Math.max(MIN_ZOOM_MS, Math.min(rawDuration, fullDuration));
-
-      const centerSvgX = getSvgX(getTouchCenterX(event));
-      const ratio = Math.max(
-        0,
-        Math.min(
-          1,
-          (centerSvgX - chart.margin.left) / Math.max(chart.innerWidth, 1)
-        )
-      );
-
-      const nextStart = gesture.centerTime - ratio * duration;
-      const next = clampDomain(
-        nextStart,
-        nextStart + duration,
-        fullDomain.start,
-        fullDomain.end
-      );
-
-      setViewDomain(next);
-    }
-  }
-
-  function handleTouchEnd() {
-    gestureRef.current = null;
-  }
-
-  function resetZoom() {
-    setViewDomain(fullDomain);
-    setTooltip((prev) => ({ ...prev, visible: false }));
-  }
-
-  const tooltipPoint = points[tooltip.index];
-  const zoomActive =
-    fullDomain &&
-    activeDomain &&
-    Math.round(activeDomain.end - activeDomain.start) <
-      Math.round(fullDomain.end - fullDomain.start);
+  const tooltipPoint = visiblePoints[tooltip.index];
 
   return (
     <main style={pageStyle}>
@@ -684,21 +498,76 @@ export default function ChartPage() {
             </label>
           </div>
 
-          <div style={zoomRowStyle}>
-            <span>
-              🔍 Видно: <b>{activeDomain ? formatDuration(activeDomain.end - activeDomain.start) : "—"}</b>
-            </span>
-            <button
-              type="button"
-              onClick={resetZoom}
-              disabled={!zoomActive}
-              style={{
-                ...resetButtonStyle,
-                opacity: zoomActive ? 1 : 0.45,
-              }}
-            >
-              Скинути
-            </button>
+          <div style={zoomPanelStyle}>
+            <div style={zoomButtonsStyle}>
+              {zoomButtons.map((button) => {
+                const active =
+                  (button.minutes === null && activeZoomMinutes === null) ||
+                  (button.minutes !== null &&
+                    activeZoomMinutes !== null &&
+                    Math.abs(activeZoomMinutes - button.minutes) < 1);
+
+                return (
+                  <button
+                    key={button.label}
+                    type="button"
+                    onClick={() => {
+                      setZoomMinutes(button.minutes);
+                      setPanPercent(100);
+                      if (button.minutes === null) setZoomPercent(100);
+                    }}
+                    style={{
+                      ...zoomButtonStyle,
+                      background: active ? "#0f172a" : "#f8fafc",
+                      color: active ? "white" : "#0f172a",
+                      borderColor: active ? "#0f172a" : "#e5e7eb",
+                    }}
+                  >
+                    {button.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={sliderRowStyle}>
+              <span style={sliderLabelStyle}>Масштаб</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={zoomMinutes === null ? zoomPercent : 100}
+                onChange={(e) => {
+                  setZoomMinutes(null);
+                  setZoomPercent(Number(e.target.value));
+                }}
+                style={rangeStyle}
+              />
+              <b style={zoomValueStyle}>{zoomLabel}</b>
+            </div>
+
+            <div style={sliderRowStyle}>
+              <span style={sliderLabelStyle}>Позиція</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={panPercent}
+                onChange={(e) => setPanPercent(Number(e.target.value))}
+                disabled={!activeZoomMinutes || activeZoomMinutes >= timeInfo.totalMinutes}
+                style={rangeStyle}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setZoomMinutes(null);
+                  setZoomPercent(100);
+                  setPanPercent(100);
+                }}
+                style={resetZoomButtonStyle}
+              >
+                Скинути
+              </button>
+            </div>
           </div>
 
           <div style={chartAreaStyle}>
@@ -715,14 +584,14 @@ export default function ChartPage() {
                 height="100%"
                 viewBox="0 0 900 500"
                 preserveAspectRatio="none"
-                onMouseMove={handleMouseMove}
-                onMouseLeave={() =>
+                onPointerDown={handlePointer}
+                onPointerMove={(e) => tooltip.visible && handlePointer(e)}
+                onPointerUp={() =>
                   setTooltip((prev) => ({ ...prev, visible: false }))
                 }
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchEnd}
+                onPointerLeave={() =>
+                  setTooltip((prev) => ({ ...prev, visible: false }))
+                }
                 style={{ touchAction: "none", display: "block" }}
               >
                 {chart.percentTicks.map((tick) => {
@@ -775,7 +644,7 @@ export default function ChartPage() {
                     fontSize="13"
                     textAnchor="middle"
                   >
-                    {formatKyivTime(tick.label, period, chart.visibleDuration)}
+                    {formatKyivTime(tick.label, period)}
                   </text>
                 ))}
 
@@ -844,11 +713,11 @@ export default function ChartPage() {
                     />
 
                     <foreignObject
-                      x={tooltip.x > 560 ? tooltip.x - 300 : tooltip.x + 16}
-                      y={36}
-                      width="280"
-                      height="190"
-                    >
+  x={tooltip.x > 560 ? tooltip.x - 300 : tooltip.x + 16}
+  y={36}
+  width="280"
+  height="190"
+>
                       <div style={tooltipStyle}>
                         <div style={{ fontWeight: 900, marginBottom: 6 }}>
                           {formatKyivDateTime(tooltipPoint.time)}
@@ -1032,30 +901,70 @@ const checkboxRowStyle: CSSProperties = {
   flex: "0 0 auto",
 };
 
-const zoomRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-  marginBottom: 5,
-  fontSize: "clamp(11px, 3vw, 13px)",
-  color: "#64748b",
-  fontWeight: 800,
-};
-
-const resetButtonStyle: CSSProperties = {
-  border: "1px solid #cbd5e1",
-  background: "#f8fafc",
-  borderRadius: 999,
-  padding: "5px 10px",
-  fontWeight: 900,
-  color: "#0f172a",
-};
-
 const checkLabelStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 3,
+};
+
+
+const zoomPanelStyle: CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e5e7eb",
+  borderRadius: 14,
+  padding: "7px",
+  marginBottom: 6,
+  flex: "0 0 auto",
+};
+
+const zoomButtonsStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, 1fr)",
+  gap: 4,
+  marginBottom: 7,
+};
+
+const zoomButtonStyle: CSSProperties = {
+  border: "1px solid",
+  borderRadius: 9,
+  padding: "6px 2px",
+  fontSize: "clamp(9px, 2.5vw, 12px)",
+  fontWeight: 900,
+};
+
+const sliderRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "58px 1fr 72px",
+  alignItems: "center",
+  gap: 6,
+  marginTop: 4,
+};
+
+const sliderLabelStyle: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 900,
+  color: "#475569",
+};
+
+const rangeStyle: CSSProperties = {
+  width: "100%",
+  accentColor: "#7c3aed",
+};
+
+const zoomValueStyle: CSSProperties = {
+  fontSize: 11,
+  textAlign: "right",
+  color: "#0f172a",
+};
+
+const resetZoomButtonStyle: CSSProperties = {
+  border: 0,
+  borderRadius: 9,
+  background: "#7c3aed",
+  color: "white",
+  padding: "6px 4px",
+  fontSize: 11,
+  fontWeight: 900,
 };
 
 const chartAreaStyle: CSSProperties = {
