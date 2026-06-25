@@ -14,9 +14,9 @@ type Sensor = {
   rpm: number;
   mode: string;
   online: boolean;
+  cooling?: boolean;
   wifiLevel?: number;
   wifi_level?: number;
-  cooling?: boolean;
 };
 
 const EMPTY_ROWS = 50;
@@ -28,7 +28,6 @@ const sensorNames: Record<string, string> = {
   "4": "Супорос 3",
   "5": "Відгодівля",
   "6": "Карантин",
-  
 };
 
 export default function FanSettingsPage() {
@@ -43,6 +42,7 @@ export default function FanSettingsPage() {
   const [coolingOnTemp, setCoolingOnTemp] = useState("26");
   const [coolingOffTemp, setCoolingOffTemp] = useState("25");
   const [coolingMinWork, setCoolingMinWork] = useState("5");
+
   const [rows, setRows] = useState<Row[]>(
     Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" }))
   );
@@ -54,19 +54,19 @@ export default function FanSettingsPage() {
   const theme = dark ? darkTheme : lightTheme;
 
   useEffect(() => {
-    async function loadProfile() {
+    async function loadAll() {
+      setLoading(true);
+
       try {
         const res = await fetch(`/api/fan-profiles?device_id=${deviceId}`, {
           cache: "no-store",
         });
-
         const data = await res.json();
 
         setStartupSeconds(String(data.startup_seconds ?? 20));
         setStartupPercent(String(data.startup_percent ?? 50));
 
         const apiRules = Array.isArray(data.rules) ? data.rules : [];
-
         setRows(
           Array.from({ length: EMPTY_ROWS }, (_, i) => {
             const rule = apiRules[i];
@@ -76,17 +76,22 @@ export default function FanSettingsPage() {
           })
         );
 
-        const coolingRes = await fetch(
-          `/api/cooling-settings?device_id=${deviceId}`,
-          { cache: "no-store" }
-        );
+        try {
+          const coolingRes = await fetch(
+            `/api/cooling-settings?device_id=${deviceId}`,
+            { cache: "no-store" }
+          );
+          const cooling = await coolingRes.json();
 
-        const cooling = await coolingRes.json();
-
-        setCoolingEnabled(cooling.enabled ?? true);
-        setCoolingOnTemp(String(cooling.on_temp ?? 26));
-        setCoolingOffTemp(String(cooling.off_temp ?? 25));
-        setCoolingMinWork(String(cooling.min_work_minutes ?? 5));
+          if (cooling?.ok !== false) {
+            setCoolingEnabled(cooling.enabled ?? true);
+            setCoolingOnTemp(String(cooling.on_temp ?? 26));
+            setCoolingOffTemp(String(cooling.off_temp ?? 25));
+            setCoolingMinWork(String(cooling.min_work_minutes ?? 5));
+          }
+        } catch (error) {
+          console.error("Cooling settings load error:", error);
+        }
       } catch (error) {
         console.error(error);
         alert("Не вдалося завантажити налаштування");
@@ -95,7 +100,7 @@ export default function FanSettingsPage() {
       }
     }
 
-    loadProfile();
+    loadAll();
   }, [deviceId]);
 
   useEffect(() => {
@@ -105,11 +110,9 @@ export default function FanSettingsPage() {
       try {
         const res = await fetch("/api/home-summary", { cache: "no-store" });
         const data = await res.json();
-
         const found = (data.sensors ?? []).find(
           (s: Sensor) => Number(s.id) === Number(deviceId)
         );
-
         if (!cancelled) setSensor(found ?? null);
       } catch {
         if (!cancelled) setSensor(null);
@@ -125,11 +128,41 @@ export default function FanSettingsPage() {
     };
   }, [deviceId]);
 
-  function updateRow(index: number, field: "temp" | "percent", value: string) {
-    const next = [...rows];
-    next[index] = { ...next[index], [field]: value };
-    setRows(next);
-  }
+  const filledRulesCount = useMemo(() => {
+    return rows.filter(
+      (row) => row.temp.trim() !== "" && row.percent.trim() !== ""
+    ).length;
+  }, [rows]);
+
+  const activeRuleIndex = useMemo(() => {
+    const currentTemp = Number(sensor?.temp ?? 0);
+    if (!sensor?.online || Number.isNaN(currentTemp)) return -1;
+
+    let active = -1;
+    rows.forEach((row, index) => {
+      const temp = Number(row.temp);
+      const percent = Number(row.percent);
+
+      if (
+        row.temp.trim() !== "" &&
+        row.percent.trim() !== "" &&
+        !Number.isNaN(temp) &&
+        !Number.isNaN(percent) &&
+        currentTemp >= temp
+      ) {
+        active = index;
+      }
+    });
+
+    return active;
+  }, [rows, sensor]);
+
+  const activeRuleText = useMemo(() => {
+    if (activeRuleIndex < 0) return "—";
+    const rule = rows[activeRuleIndex];
+    if (!rule) return "—";
+    return `${rule.temp}°C → ${rule.percent}%`;
+  }, [activeRuleIndex, rows]);
 
   function clearAll() {
     setRows(Array.from({ length: EMPTY_ROWS }, () => ({ temp: "", percent: "" })));
@@ -160,31 +193,7 @@ export default function FanSettingsPage() {
     );
   }
 
-  const activeRuleIndex = useMemo(() => {
-    const currentTemp = Number(sensor?.temp ?? 0);
-    if (!sensor?.online || Number.isNaN(currentTemp)) return -1;
-
-    let active = -1;
-
-    rows.forEach((row, index) => {
-      const temp = Number(row.temp);
-      const percent = Number(row.percent);
-
-      if (
-        row.temp.trim() !== "" &&
-        row.percent.trim() !== "" &&
-        !Number.isNaN(temp) &&
-        !Number.isNaN(percent) &&
-        currentTemp >= temp
-      ) {
-        active = index;
-      }
-    });
-
-    return active;
-  }, [rows, sensor]);
-
-  function validate() {
+  function validateFanSettings() {
     const sec = Number(startupSeconds);
     const startup = Number(startupPercent);
 
@@ -204,7 +213,6 @@ export default function FanSettingsPage() {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-
       const hasTemp = row.temp.trim() !== "";
       const hasPercent = row.percent.trim() !== "";
 
@@ -248,27 +256,31 @@ export default function FanSettingsPage() {
       return false;
     }
 
-    const coolingOn = Number(coolingOnTemp);
-    const coolingOff = Number(coolingOffTemp);
-    const coolingMin = Number(coolingMinWork);
+    return true;
+  }
 
-    if (Number.isNaN(coolingOn) || coolingOn < 0 || coolingOn > 60) {
-      alert("Температура включення охолодження має бути від 0 до 60°C");
+  function validateCoolingSettings() {
+    const onTemp = Number(coolingOnTemp);
+    const offTemp = Number(coolingOffTemp);
+    const minWork = Number(coolingMinWork);
+
+    if (Number.isNaN(onTemp) || Number.isNaN(offTemp)) {
+      alert("Температура охолодження має бути числом");
       return false;
     }
 
-    if (Number.isNaN(coolingOff) || coolingOff < 0 || coolingOff > 60) {
-      alert("Температура виключення охолодження має бути від 0 до 60°C");
-      return false;
-    }
-
-    if (coolingOn <= coolingOff) {
+    if (onTemp <= offTemp) {
       alert("Температура включення охолодження має бути більшою за температуру виключення");
       return false;
     }
 
-    if (!Number.isInteger(coolingMin) || coolingMin < 0 || coolingMin > 120) {
-      alert("Мінімальний час роботи охолодження має бути від 0 до 120 хв");
+    if (onTemp < 0 || onTemp > 60 || offTemp < 0 || offTemp > 60) {
+      alert("Температура охолодження має бути в межах 0–60°C");
+      return false;
+    }
+
+    if (!Number.isInteger(minWork) || minWork < 0 || minWork > 120) {
+      alert("Мінімальний час роботи має бути від 0 до 120 хвилин");
       return false;
     }
 
@@ -276,19 +288,17 @@ export default function FanSettingsPage() {
   }
 
   async function save() {
-    if (!validate()) return;
+    if (!validateFanSettings()) return;
+    if (!validateCoolingSettings()) return;
 
     const validRows = rows
       .filter((r) => r.temp.trim() !== "" && r.percent.trim() !== "")
-      .map((r) => ({
-        temp: Number(r.temp),
-        percent: Number(r.percent),
-      }));
+      .map((r) => ({ temp: Number(r.temp), percent: Number(r.percent) }));
 
     setSaving(true);
 
     try {
-      const res = await fetch("/api/fan-profiles", {
+      const fanRes = await fetch("/api/fan-profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -299,10 +309,10 @@ export default function FanSettingsPage() {
         }),
       });
 
-      const data = await res.json();
+      const fanData = await fanRes.json();
 
-      if (!data.ok) {
-        alert(data.error || "Помилка збереження");
+      if (!fanData.ok) {
+        alert(fanData.error || "Помилка збереження вентилятора");
         return;
       }
 
@@ -345,7 +355,7 @@ export default function FanSettingsPage() {
   const wifiLevel = sensor?.wifiLevel ?? sensor?.wifi_level ?? 0;
   const fanValue =
     sensor?.mode === "manual" ? "Ручне" : `${Math.round(sensor?.rpm ?? 0)}%`;
-  const coolingValue = sensor?.cooling ? "ON" : "OFF";
+  const coolingStatus = sensor?.cooling ? "ON" : "OFF";
 
   return (
     <main style={{ ...pageStyle, background: theme.bg, color: theme.text }}>
@@ -395,7 +405,7 @@ export default function FanSettingsPage() {
             <StatusItem icon="🌡" label="Темп." value={`${Number(sensor?.temp ?? 0).toFixed(1)}°`} theme={theme} />
             <StatusItem icon="💧" label="Волог." value={`${Number(sensor?.humidity ?? 0).toFixed(0)}%`} theme={theme} />
             <StatusItem icon="🌀" label="Вент." value={fanValue} theme={theme} />
-            <StatusItem icon="❄️" label="Охол." value={coolingValue} theme={theme} />
+            <StatusItem icon="❄️" label="Охол." value={coolingStatus} theme={theme} />
           </div>
         </section>
 
@@ -407,12 +417,7 @@ export default function FanSettingsPage() {
             <input
               value={startupSeconds}
               onChange={(e) => setStartupSeconds(e.target.value)}
-              style={{
-                ...smallInputStyle,
-                background: theme.input,
-                color: theme.text,
-                borderColor: theme.border,
-              }}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
               inputMode="numeric"
             />
             <b>сек</b>
@@ -423,24 +428,23 @@ export default function FanSettingsPage() {
             <input
               value={startupPercent}
               onChange={(e) => setStartupPercent(e.target.value)}
-              style={{
-                ...smallInputStyle,
-                background: theme.input,
-                color: theme.text,
-                borderColor: theme.border,
-              }}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
               inputMode="numeric"
             />
             <b>%</b>
           </div>
         </section>
 
-        <section style={{ ...coolingCardStyle, background: theme.card, borderColor: theme.border }}>
+        <section style={{ ...smallCardStyle, background: theme.card, borderColor: theme.border }}>
           <h2 style={cardTitleStyle}>❄️ Система охолодження</h2>
 
           <div style={coolingGridStyle}>
-            <label style={coolingSwitchStyle}>
-              <span>Увімкнено</span>
+            <div style={coolingLabelStyle}>Увімкнено</div>
+            <div style={{ ...coolingTopLabelStyle, color: theme.muted }}>Вкл</div>
+            <div style={{ ...coolingTopLabelStyle, color: theme.muted }}>Викл</div>
+            <div style={{ ...coolingTopLabelStyle, color: theme.muted }}>Хв</div>
+
+            <label style={checkboxWrapStyle}>
               <input
                 type="checkbox"
                 checked={coolingEnabled}
@@ -449,166 +453,71 @@ export default function FanSettingsPage() {
               />
             </label>
 
-            <label>
-              <div style={{ ...miniLabelStyle, color: theme.muted }}>Вкл</div>
-              <input
-                value={coolingOnTemp}
-                onChange={(e) => setCoolingOnTemp(e.target.value)}
-                style={{
-                  ...coolingInputStyle,
-                  background: theme.input,
-                  color: theme.text,
-                  borderColor: theme.border,
-                }}
-                inputMode="decimal"
-              />
-            </label>
+            <input
+              value={coolingOnTemp}
+              onChange={(e) => setCoolingOnTemp(e.target.value)}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              inputMode="decimal"
+            />
 
-            <label>
-              <div style={{ ...miniLabelStyle, color: theme.muted }}>Викл</div>
-              <input
-                value={coolingOffTemp}
-                onChange={(e) => setCoolingOffTemp(e.target.value)}
-                style={{
-                  ...coolingInputStyle,
-                  background: theme.input,
-                  color: theme.text,
-                  borderColor: theme.border,
-                }}
-                inputMode="decimal"
-              />
-            </label>
+            <input
+              value={coolingOffTemp}
+              onChange={(e) => setCoolingOffTemp(e.target.value)}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              inputMode="decimal"
+            />
 
-            <label>
-              <div style={{ ...miniLabelStyle, color: theme.muted }}>Хв</div>
-              <input
-                value={coolingMinWork}
-                onChange={(e) => setCoolingMinWork(e.target.value)}
-                style={{
-                  ...coolingInputStyle,
-                  background: theme.input,
-                  color: theme.text,
-                  borderColor: theme.border,
-                }}
-                inputMode="numeric"
-              />
-            </label>
+            <input
+              value={coolingMinWork}
+              onChange={(e) => setCoolingMinWork(e.target.value)}
+              style={{ ...smallInputStyle, background: theme.input, color: theme.text, borderColor: theme.border }}
+              inputMode="numeric"
+            />
           </div>
         </section>
 
-        <section
-          style={{
-            ...rulesCardStyle,
-            background: theme.card,
-            borderColor: theme.border,
-          }}
-        >
-          <h2 style={cardTitleStyle}>Правила керування вентилятором (50)</h2>
+        <section style={{ ...rulesSummaryCardStyle, background: theme.card, borderColor: theme.border }}>
+          <h2 style={cardTitleStyle}>📋 Правила вентилятора</h2>
 
-          <div style={{ ...rulesBoxStyle, borderColor: theme.border }}>
-            <div
-              style={{
-                ...rulesHeaderStyle,
-                background: theme.header,
-                borderColor: theme.border,
-              }}
-            >
-              <div>№</div>
-              <div>Температура ≥, °C</div>
-              <div>Вентилятор, %</div>
+          <div style={rulesSummaryGridStyle}>
+            <div style={rulesSummaryItemStyle}>
+              <div style={{ ...rulesSummaryLabelStyle, color: theme.muted }}>Всього правил</div>
+              <div style={rulesSummaryValueStyle}>{filledRulesCount}</div>
             </div>
 
-            <div style={rulesScrollStyle}>
-              {rows.map((row, i) => {
-                const active = i === activeRuleIndex;
-
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      ...rulesRowStyle,
-                      background: active
-                        ? "rgba(22,163,74,0.22)"
-                        : "transparent",
-                      borderColor: theme.border,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 900,
-                        color: active ? "#22c55e" : theme.text,
-                      }}
-                    >
-                      {i + 1}
-                    </div>
-
-                    <input
-                      value={row.temp}
-                      onChange={(e) => updateRow(i, "temp", e.target.value)}
-                      placeholder="Напр. 22"
-                      style={{
-                        ...tableInputStyle,
-                        background: theme.input,
-                        color: theme.text,
-                        borderColor: active ? "#22c55e" : theme.border,
-                      }}
-                      inputMode="decimal"
-                    />
-
-                    <input
-                      value={row.percent}
-                      onChange={(e) => updateRow(i, "percent", e.target.value)}
-                      placeholder="15–100"
-                      style={{
-                        ...tableInputStyle,
-                        background: theme.input,
-                        color: theme.text,
-                        borderColor: active ? "#22c55e" : theme.border,
-                      }}
-                      inputMode="numeric"
-                    />
-                  </div>
-                );
-              })}
+            <div style={rulesSummaryItemStyle}>
+              <div style={{ ...rulesSummaryLabelStyle, color: theme.muted }}>
+                Активне правило{activeRuleIndex >= 0 ? <span style={greenDotStyle}>●</span> : null}
+              </div>
+              <div style={rulesSummaryValueStyle}>{activeRuleText}</div>
             </div>
+
+            <Link href={`/fan-settings/${deviceId}/rules`} style={openEditorButtonStyle}>
+              ✏️ Редагувати →
+            </Link>
           </div>
         </section>
 
         <div style={buttonsRowStyle}>
-          <button
-            onClick={clearAll}
-            style={{ ...actionButtonStyle, background: "#dc2626" }}
-          >
+          <button onClick={clearAll} style={{ ...actionButtonStyle, background: "#dc2626" }}>
             🗑 Очистити
           </button>
 
-          <button
-            onClick={setDefault}
-            style={{ ...actionButtonStyle, background: "#2563eb" }}
-          >
+          <button onClick={setDefault} style={{ ...actionButtonStyle, background: "#2563eb" }}>
             ↻ Заводські
           </button>
 
           <button
             onClick={save}
             disabled={saving}
-            style={{
-              ...actionButtonStyle,
-              background: saving ? "#64748b" : "#16a34a",
-            }}
+            style={{ ...actionButtonStyle, background: saving ? "#64748b" : "#16a34a" }}
           >
             💾 {saving ? "..." : "Зберегти"}
           </button>
         </div>
       </div>
 
-      <nav
-        style={{
-          ...bottomNavStyle,
-          background: theme.nav,
-          borderColor: theme.border,
-        }}
-      >
+      <nav style={{ ...bottomNavStyle, background: theme.nav, borderColor: theme.border }}>
         <BottomLink href="/" icon="⌂" text="Головна" active={false} theme={theme} />
         <BottomLink href={`/chart/${deviceId}`} icon="▥" text="Графік" active={false} theme={theme} />
         <BottomLink href={`/fan-settings/${deviceId}`} icon="☷" text="Керування" active theme={theme} />
@@ -618,17 +527,7 @@ export default function FanSettingsPage() {
   );
 }
 
-function StatusItem({
-  icon,
-  label,
-  value,
-  theme,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  theme: typeof lightTheme;
-}) {
+function StatusItem({ icon, label, value, theme }: { icon: string; label: string; value: string; theme: typeof lightTheme }) {
   return (
     <div style={{ ...statusItemStyle, borderColor: theme.border }}>
       <div style={statusIconStyle}>{icon}</div>
@@ -638,344 +537,50 @@ function StatusItem({
   );
 }
 
-function BottomLink({
-  href,
-  icon,
-  text,
-  active,
-  theme,
-}: {
-  href: string;
-  icon: string;
-  text: string;
-  active: boolean;
-  theme: typeof lightTheme;
-}) {
+function BottomLink({ href, icon, text, active, theme }: { href: string; icon: string; text: string; active: boolean; theme: typeof lightTheme }) {
   return (
-    <Link
-      href={href}
-      style={{
-        ...bottomLinkStyle,
-        color: active ? "#2563eb" : theme.muted,
-      }}
-    >
+    <Link href={href} style={{ ...bottomLinkStyle, color: active ? "#2563eb" : theme.muted }}>
       <div style={{ fontSize: 24, lineHeight: 1 }}>{icon}</div>
       <div>{text}</div>
     </Link>
   );
 }
 
-const lightTheme = {
-  bg: "#f8fafc",
-  card: "#ffffff",
-  nav: "#ffffff",
-  text: "#0f172a",
-  muted: "#64748b",
-  border: "#e5e7eb",
-  input: "#ffffff",
-  header: "#f1f5f9",
-};
+const lightTheme = { bg: "#f8fafc", card: "#ffffff", nav: "#ffffff", text: "#0f172a", muted: "#64748b", border: "#e5e7eb", input: "#ffffff", header: "#f1f5f9" };
+const darkTheme = { bg: "#07111f", card: "rgba(15,23,42,0.94)", nav: "rgba(15,23,42,0.98)", text: "#f8fafc", muted: "#cbd5e1", border: "rgba(148,163,184,0.22)", input: "rgba(15,23,42,0.88)", header: "rgba(30,41,59,0.8)" };
 
-const darkTheme = {
-  bg: "#07111f",
-  card: "rgba(15,23,42,0.94)",
-  nav: "rgba(15,23,42,0.98)",
-  text: "#f8fafc",
-  muted: "#cbd5e1",
-  border: "rgba(148,163,184,0.22)",
-  input: "rgba(15,23,42,0.88)",
-  header: "rgba(30,41,59,0.8)",
-};
-
-const pageStyle: CSSProperties = {
-  height: "100dvh",
-  overflow: "hidden",
-  paddingBottom: 76,
-};
-
-const screenStyle: CSSProperties = {
-  height: "calc(100dvh - 76px)",
-  maxWidth: 560,
-  margin: "0 auto",
-  padding: "8px 10px",
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-};
-
-const headerStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "42px 1fr 50px",
-  alignItems: "center",
-  gap: 8,
-  marginBottom: 7,
-  flex: "0 0 auto",
-};
-
-const menuButtonStyle: CSSProperties = {
-  border: 0,
-  background: "transparent",
-  fontSize: 31,
-  fontWeight: 900,
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "clamp(21px,5.3vw,28px)",
-  fontWeight: 950,
-  lineHeight: 1.05,
-};
-
-const subtitleStyle: CSSProperties = {
-  marginTop: 3,
-  fontSize: 15,
-  fontWeight: 800,
-};
-
-const themeButtonStyle: CSSProperties = {
-  height: 44,
-  borderRadius: 14,
-  border: "1px solid",
-  fontSize: 21,
-};
-
-const cardStyle: CSSProperties = {
-  border: "1px solid",
-  borderRadius: 18,
-  padding: 10,
-  marginBottom: 8,
-  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
-  flex: "0 0 auto",
-};
-
-const smallCardStyle: CSSProperties = {
-  border: "1px solid",
-  borderRadius: 18,
-  padding: 10,
-  marginBottom: 8,
-  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
-  flex: "0 0 auto",
-};
-
-const coolingCardStyle: CSSProperties = {
-  border: "1px solid",
-  borderRadius: 18,
-  padding: 10,
-  marginBottom: 8,
-  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
-  flex: "0 0 auto",
-};
-
-const coolingGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.25fr 0.75fr 0.75fr 0.75fr",
-  alignItems: "center",
-  gap: 7,
-  marginTop: 8,
-};
-
-const coolingSwitchStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 6,
-  fontWeight: 900,
-  fontSize: "clamp(12px,3.2vw,14px)",
-};
-
-const checkboxStyle: CSSProperties = {
-  width: 22,
-  height: 22,
-  accentColor: "#2563eb",
-};
-
-const miniLabelStyle: CSSProperties = {
-  marginBottom: 3,
-  fontSize: 10,
-  fontWeight: 900,
-  textAlign: "center",
-};
-
-const coolingInputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  border: "1px solid",
-  borderRadius: 10,
-  padding: "6px 4px",
-  fontSize: 14,
-  fontWeight: 950,
-  textAlign: "center",
-  outline: "none",
-};
-
-const rulesCardStyle: CSSProperties = {
-  border: "1px solid",
-  borderRadius: 18,
-  padding: 10,
-  marginBottom: 8,
-  boxShadow: "0 8px 22px rgba(15,23,42,0.06)",
-  flex: "1 1 auto",
-  minHeight: 0,
-  display: "flex",
-  flexDirection: "column",
-};
-
-const cardTitleRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-  marginBottom: 8,
-};
-
-const cardTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "clamp(15px,4vw,19px)",
-  fontWeight: 950,
-  lineHeight: 1.1,
-};
-
-const onlineBadgeStyle: CSSProperties = {
-  padding: "4px 9px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 900,
-  whiteSpace: "nowrap",
-};
-
-const statusGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(5, 1fr)",
-};
-
-const statusItemStyle: CSSProperties = {
-  textAlign: "center",
-  borderLeft: "1px solid",
-  padding: "2px 2px",
-};
-
-const statusIconStyle: CSSProperties = {
-  fontSize: 23,
-  lineHeight: 1,
-};
-
-const statusLabelStyle: CSSProperties = {
-  marginTop: 4,
-  fontSize: 10,
-  fontWeight: 800,
-};
-
-const statusValueStyle: CSSProperties = {
-  marginTop: 4,
-  fontSize: "clamp(13px,3.8vw,18px)",
-  fontWeight: 950,
-};
-
-const simpleRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 72px 28px",
-  alignItems: "center",
-  gap: 7,
-  padding: "6px 0",
-  borderBottom: "1px solid rgba(148,163,184,0.22)",
-  fontWeight: 800,
-};
-
-const smallInputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  border: "1px solid",
-  borderRadius: 10,
-  padding: "6px 8px",
-  fontSize: 15,
-  fontWeight: 900,
-  textAlign: "center",
-};
-
-const rulesBoxStyle: CSSProperties = {
-  border: "1px solid",
-  borderRadius: 14,
-  overflow: "hidden",
-  flex: "1 1 auto",
-  minHeight: 0,
-  display: "flex",
-  flexDirection: "column",
-  marginTop: 8,
-};
-
-const rulesHeaderStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "42px 1fr 1fr",
-  padding: "8px 6px",
-  borderBottom: "1px solid",
-  fontSize: 12,
-  fontWeight: 950,
-  textAlign: "center",
-  flex: "0 0 auto",
-};
-
-const rulesScrollStyle: CSSProperties = {
-  flex: "1 1 auto",
-  minHeight: 0,
-  overflowY: "auto",
-  WebkitOverflowScrolling: "touch",
-};
-
-const rulesRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "42px 1fr 1fr",
-  alignItems: "center",
-  gap: 5,
-  padding: "4px 6px",
-  borderBottom: "1px solid",
-};
-
-const tableInputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  border: "1px solid",
-  borderRadius: 9,
-  padding: "6px 5px",
-  fontSize: 15,
-  fontWeight: 850,
-  textAlign: "center",
-  outline: "none",
-};
-
-const buttonsRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 8,
-  marginTop: 1,
-  flex: "0 0 auto",
-};
-
-const actionButtonStyle: CSSProperties = {
-  border: 0,
-  borderRadius: 13,
-  padding: "11px 4px",
-  color: "white",
-  fontSize: "clamp(11px,3.1vw,14px)",
-  fontWeight: 950,
-};
-
-const bottomNavStyle: CSSProperties = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  maxWidth: 560,
-  margin: "0 auto",
-  display: "grid",
-  gridTemplateColumns: "repeat(5, 1fr)",
-  borderTop: "1px solid",
-  padding: "7px 4px 9px",
-  zIndex: 50,
-};
-
-const bottomLinkStyle: CSSProperties = {
-  textAlign: "center",
-  textDecoration: "none",
-  fontSize: 12,
-  fontWeight: 850,
-};
+const pageStyle: CSSProperties = { height: "100dvh", overflow: "hidden", paddingBottom: 76 };
+const screenStyle: CSSProperties = { height: "calc(100dvh - 76px)", maxWidth: 560, margin: "0 auto", padding: "8px 10px", display: "flex", flexDirection: "column", overflow: "hidden" };
+const headerStyle: CSSProperties = { display: "grid", gridTemplateColumns: "42px 1fr 50px", alignItems: "center", gap: 8, marginBottom: 7, flex: "0 0 auto" };
+const menuButtonStyle: CSSProperties = { border: 0, background: "transparent", fontSize: 31, fontWeight: 900 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: "clamp(21px,5.3vw,28px)", fontWeight: 950, lineHeight: 1.05 };
+const subtitleStyle: CSSProperties = { marginTop: 3, fontSize: 15, fontWeight: 800 };
+const themeButtonStyle: CSSProperties = { height: 44, borderRadius: 14, border: "1px solid", fontSize: 21 };
+const cardStyle: CSSProperties = { border: "1px solid", borderRadius: 18, padding: 10, marginBottom: 8, boxShadow: "0 8px 22px rgba(15,23,42,0.06)", flex: "0 0 auto" };
+const smallCardStyle: CSSProperties = { border: "1px solid", borderRadius: 18, padding: 10, marginBottom: 8, boxShadow: "0 8px 22px rgba(15,23,42,0.06)", flex: "0 0 auto" };
+const rulesSummaryCardStyle: CSSProperties = { border: "1px solid", borderRadius: 18, padding: 10, marginBottom: 8, boxShadow: "0 8px 22px rgba(15,23,42,0.06)", flex: "0 0 auto" };
+const cardTitleRowStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 };
+const cardTitleStyle: CSSProperties = { margin: 0, fontSize: "clamp(15px,4vw,19px)", fontWeight: 950, lineHeight: 1.1 };
+const onlineBadgeStyle: CSSProperties = { padding: "4px 9px", borderRadius: 999, fontSize: 12, fontWeight: 900, whiteSpace: "nowrap" };
+const statusGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, 1fr)" };
+const statusItemStyle: CSSProperties = { textAlign: "center", borderLeft: "1px solid", padding: "2px 2px" };
+const statusIconStyle: CSSProperties = { fontSize: 22, lineHeight: 1 };
+const statusLabelStyle: CSSProperties = { marginTop: 4, fontSize: 10, fontWeight: 800 };
+const statusValueStyle: CSSProperties = { marginTop: 4, fontSize: "clamp(12px,3.3vw,17px)", fontWeight: 950 };
+const simpleRowStyle: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 72px 28px", alignItems: "center", gap: 7, padding: "6px 0", borderBottom: "1px solid rgba(148,163,184,0.22)", fontWeight: 800 };
+const smallInputStyle: CSSProperties = { width: "100%", boxSizing: "border-box", border: "1px solid", borderRadius: 10, padding: "6px 8px", fontSize: 15, fontWeight: 900, textAlign: "center" };
+const coolingGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "1.15fr 0.8fr 0.8fr 0.8fr", gap: 7, alignItems: "center", marginTop: 8 };
+const coolingLabelStyle: CSSProperties = { fontWeight: 900, fontSize: 13 };
+const coolingTopLabelStyle: CSSProperties = { textAlign: "center", fontWeight: 900, fontSize: 12 };
+const checkboxWrapStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "center" };
+const checkboxStyle: CSSProperties = { width: 26, height: 26, accentColor: "#2563eb" };
+const rulesSummaryGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.15fr", gap: 8, alignItems: "center", marginTop: 9 };
+const rulesSummaryItemStyle: CSSProperties = { borderRight: "1px solid rgba(148,163,184,0.22)", minHeight: 48, display: "flex", flexDirection: "column", justifyContent: "center" };
+const rulesSummaryLabelStyle: CSSProperties = { fontSize: 11, fontWeight: 850, marginBottom: 4 };
+const rulesSummaryValueStyle: CSSProperties = { fontSize: "clamp(15px,4.2vw,19px)", fontWeight: 950 };
+const greenDotStyle: CSSProperties = { color: "#16a34a", marginLeft: 5 };
+const openEditorButtonStyle: CSSProperties = { background: "#2563eb", color: "white", borderRadius: 13, padding: "10px 8px", textDecoration: "none", textAlign: "center", fontWeight: 950, fontSize: "clamp(12px,3.3vw,15px)" };
+const buttonsRowStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 1, flex: "0 0 auto" };
+const actionButtonStyle: CSSProperties = { border: 0, borderRadius: 13, padding: "11px 4px", color: "white", fontSize: "clamp(11px,3.1vw,14px)", fontWeight: 950 };
+const bottomNavStyle: CSSProperties = { position: "fixed", left: 0, right: 0, bottom: 0, maxWidth: 560, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderTop: "1px solid", padding: "7px 4px 9px", zIndex: 50 };
+const bottomLinkStyle: CSSProperties = { textAlign: "center", textDecoration: "none", fontSize: 12, fontWeight: 850 };
