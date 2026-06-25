@@ -16,11 +16,18 @@ export async function GET() {
         let updatedAt: string | null = null;
         let min24 = 0;
         let max24 = 0;
+
         let rpm = 0;
         let humidity = 0;
         let mode = "auto";
         let wifiLevel = 0;
         let wifiRssi = 0;
+
+        let cooling = false;
+        let coolingEnabled = false;
+        let coolingOnTemp = 26;
+        let coolingOffTemp = 25;
+        let coolingMinWork = 5;
 
         try {
           const tempRows = await sql`
@@ -57,7 +64,7 @@ export async function GET() {
 
         try {
           const motorRows = await sql`
-            SELECT rpm, humidity, mode, wifi_level, wifi_rssi
+            SELECT rpm, humidity, mode, wifi_level, wifi_rssi, cooling
             FROM motor_live
             WHERE CAST(device_id AS TEXT) = ${deviceId}
             LIMIT 1
@@ -69,9 +76,33 @@ export async function GET() {
             mode = String(motorRows[0].mode ?? "auto");
             wifiLevel = Number(motorRows[0].wifi_level ?? 0);
             wifiRssi = Number(motorRows[0].wifi_rssi ?? 0);
+            cooling = Boolean(motorRows[0].cooling ?? false);
           }
         } catch (e) {
           console.log("motor read error", id, e);
+        }
+
+        try {
+          const coolingRows = await sql`
+            SELECT enabled, on_temp, off_temp, relay_state
+            FROM cooling_settings
+            WHERE CAST(device_id AS TEXT) = ${deviceId}
+            LIMIT 1
+          `;
+
+          if (coolingRows.length > 0) {
+            coolingEnabled = Boolean(coolingRows[0].enabled ?? false);
+            coolingOnTemp = Number(coolingRows[0].on_temp ?? 26);
+            coolingOffTemp = Number(coolingRows[0].off_temp ?? 25);
+
+            // Якщо ESP ще не передав cooling у motor_live,
+            // беремо стан реле з cooling_settings.relay_state.
+            if (!cooling) {
+              cooling = Boolean(coolingRows[0].relay_state ?? false);
+            }
+          }
+        } catch (e) {
+          console.log("cooling read error", id, e);
         }
 
         const online =
@@ -92,6 +123,13 @@ export async function GET() {
           // Wi-Fi НЕ обнуляємо, навіть якщо ESP офлайн
           wifiLevel,
           wifiRssi,
+
+          // Охолодження
+          cooling: online ? cooling : false,
+          coolingEnabled,
+          coolingOnTemp,
+          coolingOffTemp,
+          coolingMinWork,
         };
       })
     );
@@ -101,6 +139,7 @@ export async function GET() {
       sensors,
       onlineCount: sensors.filter((s) => s.online).length,
       totalCount: sensors.length,
+      coolingCount: sensors.filter((s) => s.cooling).length,
     });
   } catch (error) {
     console.error("home-summary fatal", error);
@@ -111,6 +150,7 @@ export async function GET() {
       sensors: [],
       onlineCount: 0,
       totalCount: 8,
+      coolingCount: 0,
     });
   }
 }
