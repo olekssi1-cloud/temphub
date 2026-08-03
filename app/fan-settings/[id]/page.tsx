@@ -1326,10 +1326,13 @@ const screenStyle: CSSProperties = {
   height: "calc(100dvh - 76px)",
   maxWidth: 560,
   margin: "0 auto",
-  padding: "8px 10px",
+  padding: "8px 10px 18px",
+  boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
-  overflow: "hidden",
+  overflowX: "hidden",
+  overflowY: "auto",
+  WebkitOverflowScrolling: "touch",
 };
 
 const headerStyle: CSSProperties = {
