@@ -78,8 +78,12 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
+    let loadingSensors = false;
+    let loadingSettings = false;
 
-    async function load() {
+    async function loadSensors() {
+      if (cancelled || loadingSensors || document.hidden) return;
+      loadingSensors = true;
       try {
         const res = await fetch("/api/home-summary", { cache: "no-store" });
         const json = await res.json();
@@ -88,50 +92,68 @@ export default function HomePage() {
           setSensors(json.sensors ?? []);
           setLoading(false);
         }
-
-        try {
-          const settingsEntries = await Promise.all(
-            fanIds.map(async (id) => {
-              const res = await fetch(`/api/cooling-settings?device_id=${id}`, {
-                cache: "no-store",
-              });
-              const data = await res.json();
-
-              return [
-                id,
-                {
-                  device_id: String(data.device_id ?? id),
-                  enabled: data.enabled ?? true,
-                  on_temp: Number(data.on_temp ?? 26),
-                  off_temp: Number(data.off_temp ?? 25),
-                  min_work_minutes: Number(data.min_work_minutes ?? 5),
-                },
-              ] as const;
-            })
-          );
-
-          if (!cancelled) {
-            setCoolingSettings(Object.fromEntries(settingsEntries));
-          }
-        } catch {
-          if (!cancelled) {
-            setCoolingSettings({});
-          }
-        }
       } catch {
         if (!cancelled) {
           setSensors([]);
           setLoading(false);
         }
+      } finally {
+        loadingSensors = false;
       }
     }
 
-    load();
-    const timer = setInterval(load, 2000);
+    async function loadSettings() {
+      if (cancelled || loadingSettings || document.hidden) return;
+      loadingSettings = true;
+      try {
+        const settingsEntries = await Promise.all(
+          fanIds.map(async (id) => {
+            const res = await fetch(`/api/cooling-settings?device_id=${id}`, {
+              cache: "no-store",
+            });
+            const data = await res.json();
+
+            return [
+              id,
+              {
+                device_id: String(data.device_id ?? id),
+                enabled: data.enabled ?? true,
+                on_temp: Number(data.on_temp ?? 26),
+                off_temp: Number(data.off_temp ?? 25),
+                min_work_minutes: Number(data.min_work_minutes ?? 5),
+              },
+            ] as const;
+          })
+        );
+
+        if (!cancelled) {
+          setCoolingSettings(Object.fromEntries(settingsEntries));
+        }
+      } catch {
+        // Keep the last known settings if a refresh fails.
+      } finally {
+        loadingSettings = false;
+      }
+    }
+
+    function onVisibilityChange() {
+      if (!document.hidden) {
+        void loadSensors();
+        void loadSettings();
+      }
+    }
+
+    void loadSensors();
+    void loadSettings();
+    const sensorTimer = setInterval(loadSensors, 10000);
+    const settingsTimer = setInterval(loadSettings, 60000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearInterval(sensorTimer);
+      clearInterval(settingsTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
