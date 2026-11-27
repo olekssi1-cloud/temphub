@@ -40,6 +40,9 @@ export default function FanSettingsPage() {
   const [dark, setDark] = useState(false);
 
   const [startupSeconds, setStartupSeconds] = useState("20");
+  const [pulse, setPulse] = useState({
+    enabled: false, threshold: "30", percent: "40", duration: "60", period: "300",
+  });
   const [startupPercent, setStartupPercent] = useState("50");
 
   const [coolingEnabled, setCoolingEnabled] = useState(true);
@@ -89,6 +92,14 @@ export default function FanSettingsPage() {
         setStartupPercent(
           String(fanData.startup_percent ?? 50)
         );
+        const savedPulse = fanData.ventilation_pulse;
+        setPulse({
+          enabled: savedPulse?.enabled === true,
+          threshold: String(savedPulse?.threshold ?? 30),
+          percent: String(savedPulse?.percent ?? 40),
+          duration: String(savedPulse?.duration ?? 60),
+          period: String(savedPulse?.period ?? 300),
+        });
 
         const apiRules = Array.isArray(fanData.rules)
           ? fanData.rules
@@ -580,6 +591,13 @@ export default function FanSettingsPage() {
             startup_percent:
               Number(startupPercent),
             rules: validRows,
+            ventilation_pulse: {
+              enabled: pulse.enabled,
+              threshold: Number(pulse.threshold),
+              percent: Number(pulse.percent),
+              duration: Number(pulse.duration),
+              period: Number(pulse.period),
+            },
           }),
         }
       );
@@ -834,6 +852,27 @@ export default function FanSettingsPage() {
           <h2 style={cardTitleStyle}>
             ⚡ Перший запуск після зміни правил
           </h2>
+
+          <fieldset>
+            <legend>Імпульс вентиляції</legend>
+            <label>
+              <input type="checkbox" checked={pulse.enabled}
+                onChange={(event) => setPulse({ ...pulse, enabled: event.target.checked })} />
+              Увімкнути імпульс нижче порога
+            </label>
+            {([
+              ["threshold", "Поріг димера, %"],
+              ["percent", "Відсоток під час імпульсу"],
+              ["duration", "Тривалість імпульсу, с"],
+              ["period", "Період між початками імпульсів, с"],
+            ] as const).map(([key, label]) => (
+              <label key={key} style={simpleRowStyle}>
+                <span>{label}</span>
+                <input type="number" step="1" style={smallInputStyle} value={pulse[key]}
+                  onChange={(event) => setPulse({ ...pulse, [key]: event.target.value })} />
+              </label>
+            ))}
+          </fieldset>
 
           <div style={simpleRowStyle}>
             <span>Час роботи</span>

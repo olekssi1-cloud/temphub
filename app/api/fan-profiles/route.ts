@@ -83,6 +83,7 @@ export async function GET(request: NextRequest) {
         startup_seconds,
         startup_percent,
         rules,
+        ventilation_pulse,
         updated_at
       FROM fan_profiles
       WHERE device_id = ${deviceId}
@@ -126,6 +127,7 @@ export async function GET(request: NextRequest) {
       startup_seconds: Number(row.startup_seconds),
       startup_percent: Number(row.startup_percent),
       rules: row.rules,
+      ventilation_pulse: row.ventilation_pulse,
       updated_at: row.updated_at,
     });
   } catch (error) {
@@ -141,6 +143,22 @@ export async function POST(request: NextRequest) {
     const startupSeconds = Number(body.startup_seconds);
     const startupPercent = Number(body.startup_percent);
     const rules = body.rules as FanRule[];
+    const pulse = body.ventilation_pulse;
+    const integerIn = (value: unknown, min: number, max: number) =>
+      typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+    if (pulse !== undefined && (
+      !pulse || typeof pulse.enabled !== "boolean" ||
+      !integerIn(pulse.threshold, 16, 100) ||
+      !integerIn(pulse.percent, pulse.threshold, 100) ||
+      !integerIn(pulse.period, 2, 86400) ||
+      !integerIn(pulse.duration, 1, pulse.period - 1)
+    )) {
+      return json({ ok: false, error: "Перевірте налаштування імпульсу: відсоток роботи має бути не нижчим за поріг, а тривалість — меншою за період." }, 400);
+    }
+    const pulseJson = pulse === undefined ? null : JSON.stringify({
+      enabled: pulse.enabled, threshold: pulse.threshold, percent: pulse.percent,
+      duration: pulse.duration, period: pulse.period,
+    });
 
     if (!Number.isInteger(deviceId) || deviceId < 1) {
       return json({ ok: false, error: "Invalid device_id" }, 400);
@@ -185,6 +203,7 @@ export async function POST(request: NextRequest) {
         startup_seconds,
         startup_percent,
         rules,
+        ventilation_pulse,
         updated_at
       )
       VALUES (
@@ -193,6 +212,7 @@ export async function POST(request: NextRequest) {
         ${startupSeconds},
         ${startupPercent},
         ${JSON.stringify(cleanRules)}::jsonb,
+        ${pulseJson}::jsonb,
         NOW()
       )
       ON CONFLICT (device_id, profile_type)
@@ -200,7 +220,12 @@ export async function POST(request: NextRequest) {
         startup_seconds = EXCLUDED.startup_seconds,
         startup_percent = EXCLUDED.startup_percent,
         rules = EXCLUDED.rules,
-        updated_at = NOW()
+        ventilation_pulse = COALESCE(EXCLUDED.ventilation_pulse, fan_profiles.ventilation_pulse),
+        updated_at = CASE WHEN
+          fan_profiles.rules IS DISTINCT FROM EXCLUDED.rules OR
+          fan_profiles.startup_seconds IS DISTINCT FROM EXCLUDED.startup_seconds OR
+          fan_profiles.startup_percent IS DISTINCT FROM EXCLUDED.startup_percent
+          THEN NOW() ELSE fan_profiles.updated_at END
     `;
 
     return json({
