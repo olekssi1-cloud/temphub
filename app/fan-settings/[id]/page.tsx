@@ -911,8 +911,11 @@ export default function FanSettingsPage() {
 
           <label
             style={{
-              ...simpleRowStyle,
-              justifyContent: "flex-start",
+              display: "flex",
+              alignItems: "center",
+              gap: "14px",
+              minHeight: "52px",
+              borderBottom: `1px solid ${theme.border}`,
             }}
           >
             <input
@@ -924,10 +927,16 @@ export default function FanSettingsPage() {
                   enabled: event.target.checked,
                 })
               }
-              style={checkboxStyle}
+              style={{
+                width: "28px",
+                height: "28px",
+                flexShrink: 0,
+              }}
             />
 
-            <span>Увімкнути імпульс нижче порога</span>
+            <span style={{ whiteSpace: "nowrap" }}>
+              Увімкнути імпульс
+            </span>
           </label>
 
           {([
