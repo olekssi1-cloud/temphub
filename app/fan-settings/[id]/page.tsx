@@ -850,29 +850,8 @@ export default function FanSettingsPage() {
           }}
         >
           <h2 style={cardTitleStyle}>
-            ⚡ Перший запуск після зміни правил
+            ⚡ Перший запуск
           </h2>
-
-          <fieldset>
-            <legend>Імпульс вентиляції</legend>
-            <label>
-              <input type="checkbox" checked={pulse.enabled}
-                onChange={(event) => setPulse({ ...pulse, enabled: event.target.checked })} />
-              Увімкнути імпульс нижче порога
-            </label>
-            {([
-              ["threshold", "Поріг димера, %"],
-              ["percent", "Відсоток під час імпульсу"],
-              ["duration", "Тривалість імпульсу, с"],
-              ["period", "Період між початками імпульсів, с"],
-            ] as const).map(([key, label]) => (
-              <label key={key} style={simpleRowStyle}>
-                <span>{label}</span>
-                <input type="number" step="1" style={smallInputStyle} value={pulse[key]}
-                  onChange={(event) => setPulse({ ...pulse, [key]: event.target.value })} />
-              </label>
-            ))}
-          </fieldset>
 
           <div style={simpleRowStyle}>
             <span>Час роботи</span>
@@ -917,6 +896,69 @@ export default function FanSettingsPage() {
 
             <b>%</b>
           </div>
+        </section>
+
+        <section
+          style={{
+            ...smallCardStyle,
+            background: theme.card,
+            borderColor: theme.border,
+          }}
+        >
+          <h2 style={cardTitleStyle}>
+            🌀 Імпульс вентиляції
+          </h2>
+
+          <label
+            style={{
+              ...simpleRowStyle,
+              justifyContent: "flex-start",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={pulse.enabled}
+              onChange={(event) =>
+                setPulse({
+                  ...pulse,
+                  enabled: event.target.checked,
+                })
+              }
+              style={checkboxStyle}
+            />
+
+            <span>Увімкнути імпульс нижче порога</span>
+          </label>
+
+          {([
+            ["threshold", "Поріг димера, %"],
+            ["percent", "Відсоток під час імпульсу"],
+            ["duration", "Тривалість імпульсу, с"],
+            ["period", "Період між початками імпульсів, с"],
+          ] as const).map(([key, label]) => (
+            <label key={key} style={simpleRowStyle}>
+              <span>{label}</span>
+
+              <input
+                type="number"
+                step="1"
+                value={pulse[key]}
+                onChange={(event) =>
+                  setPulse({
+                    ...pulse,
+                    [key]: event.target.value,
+                  })
+                }
+                style={{
+                  ...smallInputStyle,
+                  background: theme.input,
+                  color: theme.text,
+                  borderColor: theme.border,
+                }}
+                inputMode="numeric"
+              />
+            </label>
+          ))}
         </section>
 
         <section
